@@ -4,6 +4,7 @@ import json
 import tensorflow as tf
 import numpy as np
 from models import utils
+from tensorflow.examples.tutorials.mnist import input_data
 
 
 class BaseModel(object):
@@ -29,13 +30,22 @@ class BaseModel(object):
         # All models share some basics hyper parameters, this is the section where we
         # copy them into the model
         self.result_dir = self.config['result_dir']
-        self.test_result_dir = self.config['test_result_dir']
+        self.validation_result_dir = self.config['validation_result_dir']
         self.max_iter = self.config['max_iter']
         self.max_train_epochs = self.config['max_train_episodes']
         self.drop_keep_prob = self.config['drop_keep_prob']
         self.learning_rate = self.config['learning_rate']
         self.l2 = self.config['l2']
         self.batch_size = self.config['batch_size']
+        self.image_dim = self.config['image_dim']
+        self.save_every = self.config['save_every']
+        self.test_every = self.config['test_every']
+        self.train_summary_every = self.config['train_summary_every']
+        self.validation_summary_every = self.config['validation_summary_every']
+        self.n_classes = self.config['n_classes']
+
+        # Load data
+        self.data = input_data.read_data_sets('MNIST_data', one_hot=True)
 
         # Now the child Model needs some custom parameters, to avoid any
         # inheritance hell with the __init__ function, the model
@@ -62,7 +72,7 @@ class BaseModel(object):
         sess_config = tf.ConfigProto(gpu_options=gpu_options)
         self.sess = tf.Session(config=sess_config, graph=self.graph)
         self.train_summary_writer = tf.summary.FileWriter(self.result_dir, self.sess.graph)
-        self.test_summary_writer = tf.summary.FileWriter(self.test_result_dir, self.sess.graph)
+        self.validation_summary_writer = tf.summary.FileWriter(self.validation_result_dir, self.sess.graph)
 
         # This function is not always common to all models, that's why it's again
         # separated from the __init__ one
@@ -97,14 +107,14 @@ class BaseModel(object):
         # I like to separate the function to train per epoch and the function to train globally
         raise Exception('The learn_from_epoch function must be overriden by the agent')
 
-    def train(self, save_every=1):
+    def train(self):
         # This function is usually common to all your models
         for self.epoch_id in range(0, self.max_train_epochs):
             # Perform all TensorBoard operations within learn_from_episode
             self.learn_from_epoch()
 
             # If you don't want to save during training, you can just pass a negative number
-            if save_every > 0 and self.epoch_id % save_every == 0:
+            if self.save_every > 0 and self.epoch_id % self.save_every == 0:
                 self.save()
 
     def save(self):
