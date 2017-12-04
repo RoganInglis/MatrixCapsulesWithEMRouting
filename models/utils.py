@@ -6,13 +6,16 @@ import tensorflow as tf
 
 
 def convcaps_affine_transform(in_pose, n_capsules, kernel_size, strides, padding):
-    with tf.variable_scope('conv_affine_transform'):
+    with tf.variable_scope('convcaps_affine_transform'):
         transformed_pose = []
         # TODO - Implement this
         return transformed_pose
 
 
-def caps_affine_transform():
+def caps_affine_transform(in_pose, n_capsules):
+    with tf.variable_scope('caps_affine_transform'):
+        # TODO - Implement this
+        pass
 
 
 def m_step():
