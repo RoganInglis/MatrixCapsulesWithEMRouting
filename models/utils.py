@@ -3,13 +3,87 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import tensorflow as tf
+import math
+
+
+def conv_out_size(in_size, kernel_size, strides, padding):
+    if padding is 'valid':
+        p = [0, 0]
+    else:
+        p = [kernel_size[0] - 1, kernel_size[1] - 1]
+
+    out_size = [(in_size[0] + p[0] - kernel_size[0]) // strides[0] + 1,
+                (in_size[1] + p[1] - kernel_size[1]) // strides[1] + 1]
+    return out_size
+
+
+def get_conv_caps_slices(conv_pose, kernel_size, pad, padding, in_height, in_width, strides):
+    """
+    slice_list = [conv_pose[:, i:i + kernel_size[0], j:j + kernel_size[1], :, :, :, :, :]
+                  for i in range(pad[0][0], in_height + pad[0][0] - 1, strides[0])
+                  for j in range(pad[1][0], in_width + pad[1][0] - 1, strides[1])]
+    """
+    if padding is 'same':
+        width_max = in_width
+        height_max = in_height
+    else:
+        width_max = in_width - kernel_size[1] + 1
+        height_max = in_height - kernel_size[0] + 1
+    slice_list = [conv_pose[:, i:i + kernel_size[0], j:j + kernel_size[1], :, :, :, :, :]
+                  for j in range(0, width_max, strides[1])
+                  for i in range(0, height_max, strides[0])]
+    return slice_list
 
 
 def convcaps_affine_transform(in_pose, n_capsules, kernel_size, strides, padding):
+    """
+    Creates the TensorFlow graph for the convolutional affine transform performed prior to routing in a convolutional
+    capsule layer
+    :param in_pose: Tensor with shape [batch_size, in_height, in_width, in_capsules, pose_size, pose_size]
+    :param n_capsules: Int specifying the number of output capsules
+    :param kernel_size: Int, Tuple or List specifying the size of the convolution kernel (assuming square kernel if int)
+    :param strides: Int, Tuple or List specifying the strides for the convolution (assuming equal over dimensions if int)
+    :param padding: 'valid' or 'same' specifying padding to use in the same way as tf.nn.conv2d
+    :return: vote: Tensor with shape [batch_size, kernel_height, kernel_width, in_capsules, out_height, out_width, n_capsules, pose_size, pose_size] ##### TODO - this may not be correct, double check further into implementation #####
+    """
+    # Sort out different possible kernel_size and strides formats
+    if isinstance(kernel_size, int):
+        kernel_size = [kernel_size, kernel_size]
+    if isinstance(strides, int):
+        strides = [strides, strides]
+
     with tf.variable_scope('convcaps_affine_transform'):
-        transformed_pose = []
+        # Get required shape values
+        batch_size = tf.shape(in_pose)[0]
+        shape_list = in_pose.get_shape().as_list()
+        in_height = shape_list[1]
+        in_width = shape_list[2]
+        in_capsules = shape_list[3]
+        pose_size = shape_list[4]
+
+        # Compute output im grid size
+        out_size = conv_out_size([in_height, in_width], kernel_size, strides, padding)
+
+        # Create convolutional matmul kernel and tile over batch
+        kernel = tf.Variable(tf.random_normal([1, *kernel_size, in_capsules, *out_size, n_capsules, pose_size, pose_size]),
+                             name='kernel')
+        kernel = tf.tile(kernel, [batch_size, 1, 1, 1, 1, 1, 1, 1, 1])
+
+        # Re-organise in_pose so performing matmul with kernel computes the required convolutional affine transform
+        conv_pose = tf.reshape(in_pose, [batch_size, in_height, in_width, in_capsules, 1, 1, pose_size, pose_size])
+
+        # Pad pose if required
+        pad = [[int(math.floor((kernel_size[0] - 1) / 2)), int(math.ceil((kernel_size[0] - 1) / 2))],
+               [int(math.floor((kernel_size[1] - 1) / 2)), int(math.ceil((kernel_size[1] - 1) / 2))]]
+        if padding is 'same':
+            paddings = tf.constant([[0, 0], [pad[0][0], pad[0][1]], [pad[1][0], pad[1][1]], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]])
+            conv_pose = tf.pad(conv_pose, paddings)
+
+        conv_pose_list = get_conv_caps_slices(conv_pose, )
+
+        vote = tf.matmul(kernel, conv_pose)
         # TODO - Implement this
-        return transformed_pose
+        return vote
 
 
 def caps_affine_transform(in_pose, n_capsules):
@@ -30,7 +104,7 @@ def e_step():
         pass
 
 
-def em_routing(in_transformed_pose, in_activation, n_routing_iterations):
+def em_routing(in_vote, in_activation, n_routing_iterations):
     with tf.variable_scope('em_routing'):
         em_routing_out = []
         # TODO - Implement this
@@ -43,8 +117,8 @@ def primarycaps_layer(input_tensor, n_capsules, pose_size):
     :param input_tensor: Tensor with shape [batch_size, height, width, n_filters] (batch_size, 12?, 12?, 32) in paper
     :param n_capsules: Number of capsules (for each pixel)
     :param pose_size: Size of the capsule pose matrices (i.e. pose matrix will be pose_size x pose_size)
-    :return: pose - Tensor with shape [batch_size, in_height, in_width, n_capsules, pose_size, pose_size]
-             activation - Tensor with shape [batch_size, height, width, n_capsules]
+    :return: pose: Tensor with shape [batch_size, in_height, in_width, n_capsules, pose_size, pose_size]
+             activation: Tensor with shape [batch_size, height, width, n_capsules]
     """
     with tf.variable_scope('PrimaryCaps'):
         # Get required shape values
@@ -91,14 +165,15 @@ def convcaps_layer(in_pose, in_activation, n_capsules, kernel_size, strides=1, p
     :param strides: Int, Tuple or List specifying the strides for the convolution (assuming equal over dimensions if int)
     :param padding: 'valid' or 'same' specifying padding to use in the same way as tf.nn.conv2d
     :param n_routing_iterations: Number of iterations to use for the EM dynamic routing procedure
-    :return:
+    :return: pose: Tensor with shape [batch_size, out_height, out_width, n_capsules, pose_size, pose_size]
+             activation: Tensor with shape [batch_size, out_height, out_width, n_capsules]
     """
     with tf.variable_scope('ConvCaps'):
         # Pose convolutional affine transform
-        in_transformed_pose = convcaps_affine_transform(in_pose, n_capsules, kernel_size, strides, padding)
+        in_vote = convcaps_affine_transform(in_pose, n_capsules, kernel_size, strides, padding)
 
         # EM Routing
-        pose, activation = em_routing(in_transformed_pose, in_activation, n_routing_iterations)
+        pose, activation = em_routing(in_vote, in_activation, n_routing_iterations)
 
         return pose, activation
 
@@ -112,8 +187,6 @@ def classcaps_layer(in_pose, in_activation, n_classes):
     :return:
     """
     with tf.variable_scope('ClassCaps'):
-        with tf.variable_scope('pose'):
-
         classcaps_out = []
         # TODO - Implement this
         return classcaps_out
@@ -132,11 +205,11 @@ def build_capsnetem_graph(placeholders, image_dim=784):
     with EM Routing'
     :param placeholders: Dict containing TensorFlow placeholders for the input image and labels under 'image' and 'label'
     :param image_dim: Int dimension of the flattened image (i.e. image_dim = image_height*image_width)
-    :return: loss -
-             predictions -
-             accuracy -
-             correct -
-             summaries -
+    :return: loss:
+             predictions:
+             accuracy:
+             correct:
+             summaries:
     """
     # PARAMETERS TODO - decide which (if any) should be fixed and which should be passed as arguments
     # ReLU Conv1
