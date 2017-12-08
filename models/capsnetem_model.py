@@ -32,7 +32,8 @@ class CapsNetEMModel(BaseModel):
             self.loss, self.predictions, self.accuracy, self.correct, self.summaries = utils.build_capsnetem_graph(
                                                                                                    self.placeholders,
                                                                                                    image_dim=self.image_dim)
-
+            # TODO - uncomment this when finished testing graph with tensorboard
+            """
             # Define optimiser
             self.optim = tf.train.AdamOptimizer(self.learning_rate)
             self.train_op = self.optim.minimize(self.loss, global_step=self.global_step)
@@ -43,7 +44,7 @@ class CapsNetEMModel(BaseModel):
                                                    *self.summaries['general']])
             self.validation_summary = tf.summary.merge([self.summaries['accuracy'],
                                                        self.summaries['loss']])
-
+            """
         return graph
 
     def infer(self, audio_input):

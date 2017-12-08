@@ -27,7 +27,7 @@ flags.DEFINE_integer('nb_process', 4, 'Number of parallel process to perform a H
 flags.DEFINE_string('fixed_params', "{}", 'JSON inputs to fix some params in a HP search, ex: \'{"lr": 0.001}\'')
 
 # Model configuration
-flags.DEFINE_string('model_name', 'BasicModel', 'Unique name of the model')
+flags.DEFINE_string('model_name', 'CapsNetEMModel', 'Unique name of the model')
 flags.DEFINE_boolean('best', False, 'Force to use the best known configuration')
 flags.DEFINE_float('learning_rate', 1e-3, 'The learning rate of SGD')
 flags.DEFINE_float('drop_keep_prob', 1.0, 'The dropout keep probability')

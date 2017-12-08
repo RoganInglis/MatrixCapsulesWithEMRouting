@@ -1,7 +1,9 @@
 from models.base_model import BaseModel
+from models.capsnetem_model import CapsNetEMModel
 
 __all__ = [
     "BaseModel",
+    "CapsNetEMModel"
 ]
 
 

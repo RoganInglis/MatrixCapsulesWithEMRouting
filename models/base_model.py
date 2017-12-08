@@ -29,10 +29,11 @@ class BaseModel(object):
 
         # All models share some basics hyper parameters, this is the section where we
         # copy them into the model
+        self.model_name = self.config['model_name']
         self.result_dir = self.config['result_dir']
         self.validation_result_dir = self.config['validation_result_dir']
         self.max_iter = self.config['max_iter']
-        self.max_train_epochs = self.config['max_train_episodes']
+        self.max_train_epochs = self.config['max_train_epochs']
         self.drop_keep_prob = self.config['drop_keep_prob']
         self.learning_rate = self.config['learning_rate']
         self.l2 = self.config['l2']
@@ -136,6 +137,7 @@ class BaseModel(object):
         # but making separate than the __init__ function allows it to be overidden cleanly
         # this is an example of such a function
         checkpoint = tf.train.get_checkpoint_state(self.result_dir)
+        tf.train.write_graph(self.graph, self.result_dir, self.model_name + ".pbtxt")
         if checkpoint is None:
             self.sess.run(self.init_op)
         else:
