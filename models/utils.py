@@ -57,6 +57,7 @@ def expand_dims_nd(input_tensor, axis=None, name=None):
     than using tf.reshape
     :param input_tensor: Tensor to be expanded
     :param axis: None, Int, Tuple or List specifying which axes to be expanded using the same logic as tf.expand_dims
+                 NOTE - be careful of the order of the dimensions here as this may change the results
     :param name: Name for the op/ops
     :return:
     """
@@ -64,12 +65,6 @@ def expand_dims_nd(input_tensor, axis=None, name=None):
     if len(axis) == 1:
         input_tensor = tf.expand_dims(input_tensor, axis=axis[0], name=name)
     else:
-        # Sort list such that we expand higher dimensions first unless expanding out the end
-        axis_new = list(set(axis) - set(range(input_tensor.shape.ndims)))
-        axis_existing = list(set(axis) - set(axis_new))
-        axis_existing.sort(reverse=True)
-        axis_new.sort()
-        axis = [*axis_new, *axis_existing]
         with tf.variable_scope('expand_dims_nd'):
             for dim in axis:
                 input_tensor = tf.expand_dims(input_tensor, axis=dim, name=name)
@@ -132,7 +127,8 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1]]
         activation = extract_image_patches_nd(in_activation, [1, *kernel_size, 1], [1, *strides, 1], padding=padding)
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1], 1, 1, 1]
-        activation = expand_dims_nd(activation, [6, 7, 8])
+        activation = tf.reshape(activation, [batch_size, *kernel_size, in_capsules, *out_size, 1, 1, 1])
+        #tf.summary.histogram('convcaps_affine_activation', activation)
 
         return vote, activation
 
@@ -156,13 +152,14 @@ def caps_affine_transform(in_pose, in_activation, out_capsules):
         in_capsules = shape_list[3]
         pose_size = shape_list[4]
 
-        # Create matmul weights and tile over batch (as we need the same kernel to be multiplied by each batch element)
-        weights = tf.Variable(tf.random_normal([1, in_rows, in_cols, in_capsules, 1, 1, out_capsules, pose_size, pose_size]),
+        # Create matmul weights and tile over batch, in_rows and in_columns (as we need the same weights to be
+        # multiplied by each batch element and because we need to share transformation matrices over the whole image)
+        weights = tf.Variable(tf.random_normal([1, 1, 1, in_capsules, 1, 1, out_capsules, pose_size, pose_size]),
                              name='weights')
-        weights = tf.tile(weights, [batch_size, 1, 1, 1, 1, 1, 1, 1, 1])
+        weights = tf.tile(weights, [batch_size, in_rows, in_cols, 1, 1, 1, 1, 1, 1])
 
         # Re-organise in_pose so performing matmul with kernel computes the required convolutional affine transform
-        pose = expand_dims_nd(in_pose, [4, 5, 6])
+        pose = tf.reshape(in_pose, [batch_size, in_rows, in_cols, in_capsules, 1, 1, 1, pose_size, pose_size])
 
         # Tile over out_capsules: need to be multiplying the same input tensor by different weights for each out capsule
         # [batch_size, in_rows, in_cols, in_capsules, 1, 1, out_capsules, pose_size, pose_size]
@@ -170,11 +167,42 @@ def caps_affine_transform(in_pose, in_activation, out_capsules):
 
         vote = tf.matmul(weights, pose)
 
+        # Do coordinate addition
+        vote = coordinate_addition(vote)
+
         # Expand dims of activation
         # [batch_size, in_rows, in_cols, in_capsules, 1, 1, 1, 1, 1]
         activation = expand_dims_nd(in_activation, [4, 5, 6, 7, 8])
 
         return vote, activation
+
+
+def coordinate_addition(vote):
+    """
+    Creates the TensorFlow graph to do coordinate addition as described in the paper for vote tensor
+    :param vote: Tensor with shape [batch_size, in_rows, in_cols, in_capsules, 1, 1, out_capsules, pose_size, pose_size]
+    :return: vote: Tensor with shape [batch_size, in_rows, in_cols, in_capsules, 1, 1, out_capsules, pose_size, pose_size]
+                   for which the scaled coordinates of each capsule has been added to the first two dimensions of the vote
+                   (row -> vote[:, :, :, :, :, :, :, 0, 0] and col -> vote[:, :, :, :, :, :, :, 0, 1])
+    """
+    with tf.variable_scope('coordinate_addition'):
+        in_rows, in_cols = vote.get_shape().as_list()[1:3]
+
+        # Get grids of size [in_rows, in_cols] containing the scaled row and column coordinates
+        col_coord, row_coord = tf.meshgrid(list(np.arange(in_rows) / in_rows), list(np.arange(in_cols) / in_cols))
+
+        # Expand dimensions and concatenate so they can be added to vote
+        # [1, in_rows, in_cols, 1, 1, 1, 1, 1, 1]
+        row_coord = expand_dims_nd(row_coord, [0, 3, 4, 5, 6, 7, 8])
+        col_coord = expand_dims_nd(col_coord, [0, 3, 4, 5, 6, 7, 8])
+        # [1, in_rows, in_cols, 1, 1, 1, 1, 1, 2]
+        coords = tf.concat([row_coord, col_coord], axis=-1)
+        full_coords = tf.concat([coords, tf.zeros(coords.get_shape())], axis=-1)
+
+        # Add coordinates to vote
+        vote += full_coords
+
+        return vote
 
 
 def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp):
@@ -246,7 +274,7 @@ def e_step(mean, variance, activation, in_vote):
 
         # Compute updated r (assignment probability/responsibility)
         # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
-        r = tf.divide(tf.multiply(activation, p), tf.reduce_sum(tf.multiply(activation, p), axis=[4, 5, 6], keep_dims=True))  # TODO - double check reduce sum dimensions here; summing over out capsules? Check bottom of page 5 of paper
+        r = tf.divide(tf.multiply(activation, p), tf.reduce_sum(tf.multiply(activation, p), axis=[4, 5, 6], keep_dims=True))  # TODO - double check reduce sum dimensions here; summing over out capsules? Check bottom of page 5 of paper. Should we be considering receptive fields here
 
         return r
 
@@ -278,20 +306,25 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp
         r = tf.ones([batch_size, *kernel_size, in_capsules, *out_size, out_capsules, 1, 1], name="R")/(np.prod(out_size)*out_capsules)
 
         # Create beta parameters
-        beta_v = tf.Variable(tf.random_normal([1]), name="beta_v")
-        beta_a = tf.Variable(tf.random_normal([1]), name="beta_a")
+        beta_v = tf.Variable(tf.random_normal([]), name="beta_v")
+        beta_a = tf.Variable(tf.random_normal([]), name="beta_a")
+        tf.summary.scalar('beta_v', beta_v)
+        tf.summary.scalar('beta_a', beta_a)
 
         # Initialise inverse temperature parameter and compute how much to increment by for each routing iteration
         inverse_temp = init_inverse_temp
         inverse_temp_increment = (final_inverse_temp - init_inverse_temp)/(n_routing_iterations - 1)
 
         # TODO - should we be stopping the gradient of the mean and/or activations here?
+        #in_vote = tf.stop_gradient(in_vote)
+        #in_activation = tf.stop_gradient(in_activation)
 
         # Do routing iterations
         for routing_iteration in range(n_routing_iterations):
             with tf.variable_scope("routing_iteration_{}".format(routing_iteration)):
                 # Do M-Step to get Gaussian means and standard deviations and update activations
                 mean, std_dev, activation = m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp)
+                #tf.summary.histogram('em_routing_activation', activation)
 
                 # Do E-Step to update R (only if this is not the last iteration)
                 if routing_iteration < n_routing_iterations - 1:
@@ -351,7 +384,7 @@ def primarycaps_layer(input_tensor, out_capsules, pose_size):
         return pose, activation
 
 
-def convcaps_layer(in_pose, in_activation, out_capsules, kernel_size, strides=1, padding='valid', n_routing_iterations=3,
+def convcaps_layer(in_pose, in_activation, out_capsules, kernel_size, strides=1, padding='SAME', n_routing_iterations=3,
                    init_inverse_temp=0.1, final_inverse_temp=0.9):
     """
     Creates the TensorFlow graph for a convolutional capsule layer as specified in 'Matrix Capsules with EM Routing'.
@@ -398,8 +431,6 @@ def classcaps_layer(in_pose, in_activation, n_classes, n_routing_iterations=3,
         # in_activation: Tensor with shape[batch_size, in_rows, in_cols, in_capsules, 1, 1, 1, 1, 1]
         in_vote, in_activation = caps_affine_transform(in_pose, in_activation, n_classes)
 
-        # TODO - need to sort out coordinate addition somewhere
-
         # EM Routing
         pose, activation = em_routing(in_vote, in_activation, n_routing_iterations, init_inverse_temp, final_inverse_temp)
 
@@ -417,72 +448,50 @@ def spread_loss(in_activation, label, margin):
     :return: Tensor containing the scalar loss
     """
     with tf.variable_scope('spread_loss'):
-        n_classes = in_activation.get_shape().as_list()[1]
+        label = tf.cast(label, tf.float32)
 
-        eye = tf.expand_dims(tf.eye(n_classes), axis=0)
-        tiled_activation = tf.tile(tf.expand_dims(in_activation, 2), [1, 1, n_classes])
+        # Get activation of the correct class
+        activation_target = tf.reduce_sum(tf.multiply(in_activation, label), axis=1, keep_dims=True)  # [batch_size, 1]
 
-        activation_masked_positive = tf.multiply(eye, tiled_activation)
-        activation_masked_negative = tf.multiply(1 - eye, tiled_activation)
+        # Get activations of incorrect classes
+        # Subtracting label so that the value for a_t here will become a_t - 1 which will result in
+        # (margin - (a_t - (a_t - 1))) < 0 such that the loss for the a_t element will be 0.
+        # Seems like a slightly inelegant solution but works
+        activation_other = in_activation - label
 
-        activation_diff = tf.reduce_sum(activation_masked_positive, axis=2)
+        # Get margin loss for each incorrect class
+        # [batch_size, n_classes - 1]
+        l_i = tf.square(tf.maximum(0., margin - (activation_target - activation_other)))
 
-        spread_loss = []
-        # TODO - Implement this
+        # Get total loss for each batch element
+        # [batch_size]
+        l = tf.reduce_sum(l_i, axis=1)
+
+        # Take mean of total loss over batch
+        spread_loss = tf.reduce_mean(l)
+
         return spread_loss
 
 
-def build_capsnetem_graph(placeholders, image_dim=784):
+def build_capsnetem_graph(placeholders, relu_conv1_params, primarycaps_params, convcaps1_params,
+                          convcaps2_params, classcaps_params, spread_loss_params, image_dim=784):
     """
     Builds the TensorFlow graph for the capsules model (named CapsNetEM here) presented in the paper 'Matrix Capsules
     with EM Routing'
     :param placeholders: Dict containing TensorFlow placeholders for the input image and labels under 'image' and 'label'
+    :param relu_conv1_params: dict containing the parameters for the relu conv1 layer
+    :param primarycaps_params: dict containing the parameters for the primarycaps layer
+    :param convcaps1_params: dict containing the parameters for the convcaps1 layer
+    :param convcaps2_params: dict containing the parameters for the convcaps2 layer
+    :param classcaps_params: dict containing the parameters for the classcaps layer
+    :param spread_loss_params: dict containing the parameters for the spread loss
     :param image_dim: Int dimension of the flattened image (i.e. image_dim = image_height*image_width)
-    :return: loss:
-             predictions:
-             accuracy:
-             correct:
-             summaries:
+    :return: loss: Scalar Tensor
+             predictions: Tensor with shape [batch_size] containing predicted classes
+             accuracy: Scalar Tensor
+             correct: Tensor with shape [batch_size] containing 1 or 0 for correct/incorrect classification
+             summaries: dict containing tensorboard summaries so that we can be selective about when we run each summary
     """
-    # PARAMETERS TODO - decide which (if any) should be fixed and which should be passed as arguments
-    # ReLU Conv1
-    relu_conv1_kernel_size = 5
-    relu_conv1_filters = 32
-    relu_conv1_stride = 2
-
-    # PrimaryCaps
-    primarycaps_out_capsules = 32
-    pose_size = 4
-
-    # ConvCaps1
-    convcaps1_out_capsules = 32
-    convcaps1_kernel_size = 3
-    convcaps1_strides = 2
-    convcaps1_padding = 'SAME'
-    convcaps1_n_routing_iterations = 3
-    convcaps1_init_inverse_temp = 0.1
-    convcaps1_final_inverse_temp = 0.9
-
-    # ConvCaps2
-    convcaps2_out_capsules = 32
-    convcaps2_kernel_size = 3
-    convcaps2_strides = 1
-    convcaps2_padding = 'SAME'
-    convcaps2_n_routing_iterations = 3
-    convcaps2_init_inverse_temp = 0.1
-    convcaps2_final_inverse_temp = 0.9
-
-    # Class Capsules
-    classcaps_n_classes = 10
-    classcaps_n_routing_iterations = 3
-    classcaps_init_inverse_temp = 0.1
-    classcaps_final_inverse_temp = 0.9
-
-    # Spread Loss
-    initial_margin = 0.2
-    final_margin = 0.9
-    margin = initial_margin  # TODO - use tf.train.polynomial_decay(initial_margin, global_step, decay_steps, final_margin)
-
     # Initalise summaries dict - using dict so that we can merge only select summaries; don't want image summaries all
     # the time
     summaries = {}
@@ -490,38 +499,43 @@ def build_capsnetem_graph(placeholders, image_dim=784):
 
     # Reshape flattened image tensor to 2D
     images = tf.reshape(placeholders['image'], [-1, 28, 28, 1])
-    summaries['images'] = tf.summary.image('input_images', images)
+    #summaries['images'] = tf.summary.image('input_images', images)
 
     # Create ReLU Conv1 de-rendering layer
     with tf.variable_scope('relu_conv1'):
-        relu_conv1_out = tf.layers.conv2d(images, relu_conv1_filters, relu_conv1_kernel_size, relu_conv1_stride,
+        relu_conv1_out = tf.layers.conv2d(images, **relu_conv1_params,
                                           activation=tf.nn.relu)  # [batch_size, 12?, 12?, relu_conv1_filters]
 
     # Create PrimaryCaps layer
-    primarycaps_pose, primarycaps_activation = primarycaps_layer(relu_conv1_out, primarycaps_out_capsules, pose_size)
+    primarycaps_pose, primarycaps_activation = primarycaps_layer(relu_conv1_out, **primarycaps_params)
 
     # Create ConvCaps1 layer
-    convcaps1_pose, convcaps1_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, convcaps1_out_capsules,
-                                                          convcaps1_kernel_size, convcaps1_strides, convcaps1_padding,
-                                                          convcaps1_n_routing_iterations, convcaps1_init_inverse_temp,
-                                                          convcaps1_final_inverse_temp)
+    convcaps1_pose, convcaps1_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **convcaps1_params)
 
     # Create ConvCaps2 layer
-    convcaps2_pose, convcaps2_activation = convcaps_layer(convcaps1_pose, convcaps1_activation, convcaps2_out_capsules,
-                                                          convcaps2_kernel_size, convcaps2_strides, convcaps2_padding,
-                                                          convcaps2_n_routing_iterations, convcaps2_init_inverse_temp,
-                                                          convcaps2_final_inverse_temp)
+    convcaps2_pose, convcaps2_activation = convcaps_layer(convcaps1_pose, convcaps1_activation, **convcaps2_params)
 
     # Create Class Capsules layer
-    classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, classcaps_n_classes,
-                                                           classcaps_n_routing_iterations, classcaps_init_inverse_temp,
-                                                           classcaps_final_inverse_temp)
+    classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, **classcaps_params)
 
     # Create spread loss
-    loss = spread_loss(classcaps_activation, placeholders['label'], margin)
+    loss = spread_loss(classcaps_activation, placeholders['label'], **spread_loss_params)
 
-    # TODO - Complete this (and update function params when known)
-    predictions=accuracy=correct=summaries=None
+    # Get predictions, accuracy, correct and summaries
+    with tf.name_scope("accuracy"):
+        predictions = tf.argmax(classcaps_activation, axis=1)
+        labels = tf.argmax(placeholders['label'], axis=1)
+        correct = tf.cast(tf.equal(labels, predictions), tf.int32)
+        accuracy = tf.reduce_sum(correct)/tf.shape(correct)[0]  # reduce_mean not working here for some reason
+        summaries['loss'] = tf.summary.scalar('loss', loss)
+        summaries['accuracy'] = tf.summary.scalar('accuracy', accuracy)
+
+    #summaries['general'].append(tf.summary.histogram('primarycaps_activation', primarycaps_activation))
+    #summaries['general'].append(tf.summary.histogram('convcaps1_activation', convcaps1_activation))
+    #summaries['general'].append(tf.summary.histogram('convcaps2_activation', convcaps2_activation))
+    #summaries['general'].append(tf.summary.histogram('classcaps_activation', classcaps_activation))
+    summaries['general'].append(tf.summary.histogram('correct', correct))
+
     return loss, predictions, accuracy, correct, summaries
 
 
