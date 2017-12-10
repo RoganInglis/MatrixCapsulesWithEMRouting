@@ -32,7 +32,7 @@ flags.DEFINE_boolean('best', False, 'Force to use the best known configuration')
 flags.DEFINE_float('learning_rate', 1e-4, 'The learning rate of SGD')
 flags.DEFINE_float('drop_keep_prob', 1.0, 'The dropout keep probability')
 flags.DEFINE_float('l2', 0.0, 'L2 regularisation strength')
-flags.DEFINE_integer('batch_size', 4, 'Batch size')
+flags.DEFINE_integer('batch_size', 1, 'Batch size')
 flags.DEFINE_integer('image_dim', 784, 'Number of pixels in the input image')
 flags.DEFINE_integer('n_classes', 10, 'Number of image classes')
 

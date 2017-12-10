@@ -75,8 +75,6 @@ class BaseModel(object):
         gpu_options = tf.GPUOptions(allow_growth=True)
         sess_config = tf.ConfigProto(gpu_options=gpu_options)
         self.sess = tf.Session(config=sess_config, graph=self.graph)
-        if self.debug:
-            self.sess = tf_debug.LocalCLIDebugWrapperSession(self.sess)
         self.train_summary_writer = tf.summary.FileWriter(self.result_dir, self.sess.graph)
         self.validation_summary_writer = tf.summary.FileWriter(self.validation_result_dir, self.sess.graph)
 
@@ -150,3 +148,6 @@ class BaseModel(object):
                 print('Loading the model from folder: %s' % self.result_dir)
             self.sess.run(self.init_op)
             self.saver.restore(self.sess, checkpoint.model_checkpoint_path)
+        if self.debug:
+            self.sess = tf_debug.LocalCLIDebugWrapperSession(self.sess)
+            self.sess.add_tensor_filter('has_inf_or_nan', tf_debug.has_inf_or_nan)

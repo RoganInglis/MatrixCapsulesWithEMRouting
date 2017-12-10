@@ -13,18 +13,18 @@ log_eps = 0
 
 def safe_divide(x, y, name=None):
     with tf.variable_scope('safe_divide'):
-        y = tf.maximum(y, div_eps)
+        #y = tf.maximum(y, div_eps)
         return tf.divide(x, y, name=name)
 
 
 def safe_log(x, name=None):
     with tf.variable_scope('safe_log'):
-        x = tf.maximum(x, log_eps)
+        #x = tf.maximum(x, log_eps)
         return tf.log(x, name=name)
 
 
 def conv_out_size(in_size, kernel_size, strides, padding):
-    if padding is 'valid':
+    if padding is 'VALID':
         p = [0, 0]
     else:
         # Skipping the factor of 1/2 followed by the factor of 2 here as p is not needed for anything else here
@@ -246,7 +246,7 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp):
         # In this step for each higher-level capsule, c, we multiply the activation, a, with the assignment probs/
         # responsibilities, r, to get the adjusted assignment probs, r'. We need to consider only capsules from the
         # previous layer that are within the receptive field of the capsules in the current layer
-        r = tf.multiply(r, in_activation, name='r_update_mul')
+        r = tf.multiply(r, in_activation, name='r_update_mul')  # TODO - ~1e-4
 
         # Update means (out_poses)
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
@@ -254,16 +254,17 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp):
         
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
         mean = safe_divide(tf.reduce_sum(tf.multiply(r, in_vote, name='mean_mul'), axis=[1, 2, 3], keep_dims=True),
-                           r_reduce_sum)
+                           r_reduce_sum)  # TODO - mean_mul has zeros here in the same places that the -infs seem to appear below
 
         # Update variances (same shape as mean)
         diff_vote_mean = tf.subtract(in_vote, mean, name='vote_mean_sub')
-        variance = safe_divide(tf.reduce_sum(tf.multiply(r, tf.square(diff_vote_mean, name='variance_square'),
+        variance = safe_divide(tf.reduce_sum(tf.multiply(r, tf.square(diff_vote_mean, name='diff_vote_mean_square'),
                                                          name='variance_mul'), axis=[1, 2, 3], keep_dims=True),
-                               r_reduce_sum)
+                               r_reduce_sum)  # TODO - real issue seems to be here?
 
         # Compute cost (same shape as mean)
-        cost_h = tf.multiply(tf.add(beta_v, 0.5*safe_log(variance)), r_reduce_sum, name='cost_h_mul')
+        cost_h = tf.multiply(tf.add(beta_v, 0.5*safe_log(variance, name='log_variance'), name='add_beta_log_variance'),
+                             r_reduce_sum, name='cost_h_mul')  # TODO - -inf appears here first
 
         # Compute new activations
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
