@@ -29,10 +29,10 @@ flags.DEFINE_string('fixed_params', "{}", 'JSON inputs to fix some params in a H
 # Model configuration
 flags.DEFINE_string('model_name', 'CapsNetEMModel', 'Unique name of the model')
 flags.DEFINE_boolean('best', False, 'Force to use the best known configuration')
-flags.DEFINE_float('learning_rate', 1e-4, 'The learning rate of SGD')
+flags.DEFINE_float('learning_rate', 1e-3, 'The learning rate of SGD')
 flags.DEFINE_float('drop_keep_prob', 1.0, 'The dropout keep probability')
 flags.DEFINE_float('l2', 0.0, 'L2 regularisation strength')
-flags.DEFINE_integer('batch_size', 1, 'Batch size')
+flags.DEFINE_integer('batch_size', 4, 'Batch size')
 flags.DEFINE_integer('image_dim', 784, 'Number of pixels in the input image')
 flags.DEFINE_integer('n_classes', 10, 'Number of image classes')
 
@@ -49,8 +49,8 @@ flags.DEFINE_integer('pose_size', 4, 'Size of the pose matrices')
 flags.DEFINE_integer('convcaps1_out_capsules', 32, 'Number of capsules for the first conv capsule layer')
 flags.DEFINE_integer('convcaps1_kernel_size', 3, 'Kernel size for the first conv caps layer')
 flags.DEFINE_integer('convcaps1_strides', 2, 'Strides for convolution in the first conv caps layer')
-flags.DEFINE_string('convcaps1_padding', 'SAME', 'SAME or VALID padding for the first conv capsule layer')
-flags.DEFINE_integer('convcaps1_n_routing_iterations', 3, 'Number of routing iterations for the first conv caps layer')
+flags.DEFINE_string('convcaps1_padding', 'VALID', 'SAME or VALID padding for the first conv capsule layer')
+flags.DEFINE_integer('convcaps1_n_routing_iterations', 1, 'Number of routing iterations for the first conv caps layer')
 flags.DEFINE_float('convcaps1_init_inverse_temp', 0.001, 'Initial inverse temperature value for the first conv caps layer')
 flags.DEFINE_float('convcaps1_final_inverse_temp', 0.01, 'Final inverse temperature value for the first conv caps layer')
 
@@ -58,13 +58,13 @@ flags.DEFINE_float('convcaps1_final_inverse_temp', 0.01, 'Final inverse temperat
 flags.DEFINE_integer('convcaps2_out_capsules', 32, 'Number of capsules for the second conv capsule layer')
 flags.DEFINE_integer('convcaps2_kernel_size', 3, 'Kernel size for the second conv caps layer')
 flags.DEFINE_integer('convcaps2_strides', 1, 'Strides for convolution in the second conv caps layer')
-flags.DEFINE_string('convcaps2_padding', 'SAME', 'SAME or VALID padding for the second conv capsule layer')
-flags.DEFINE_integer('convcaps2_n_routing_iterations', 3, 'Number of routing iterations for the second conv caps layer')
+flags.DEFINE_string('convcaps2_padding', 'VALID', 'SAME or VALID padding for the second conv capsule layer')
+flags.DEFINE_integer('convcaps2_n_routing_iterations', 1, 'Number of routing iterations for the second conv caps layer')
 flags.DEFINE_float('convcaps2_init_inverse_temp', 0.001, 'Initial inverse temperature value for the second conv caps layer')
 flags.DEFINE_float('convcaps2_final_inverse_temp', 0.01, 'Final inverse temperature value for the second conv caps layer')
 
 # Class Capsules
-flags.DEFINE_integer('classcaps_n_routing_iterations', 3, 'Number of routing iterations for the class caps layer')
+flags.DEFINE_integer('classcaps_n_routing_iterations', 1, 'Number of routing iterations for the class caps layer')
 flags.DEFINE_float('classcaps_init_inverse_temp', 0.001, 'Initial inverse temperature value for the class caps layer')
 flags.DEFINE_float('classcaps_final_inverse_temp', 0.01, 'Final inverse temperature value for the class caps layer')
 

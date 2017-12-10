@@ -3,3 +3,5 @@ Work in progress implementation of [Matrix Capsules with EM Routing](https://ope
 
 Credit [here](https://github.com/www0wwwjs1/Matrix-Capsules-EM-Tensorflow/issues/10) for the reduce_logsumexp trick used 
 for stability in the E-step.
+
+

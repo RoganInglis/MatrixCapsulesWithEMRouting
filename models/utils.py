@@ -7,19 +7,19 @@ import math
 
 
 # Define eps - small constant for safe division/log
-div_eps = 0
-log_eps = 0
+div_eps = 1e-6  # TODO - with these > 0 we dont get NaNs but the loss just seems to increase linearly
+log_eps = 1e-6
 
 
 def safe_divide(x, y, name=None):
     with tf.variable_scope('safe_divide'):
-        #y = tf.maximum(y, div_eps)
+        y = tf.maximum(y, div_eps)
         return tf.divide(x, y, name=name)
 
 
 def safe_log(x, name=None):
     with tf.variable_scope('safe_log'):
-        #x = tf.maximum(x, log_eps)
+        x = tf.maximum(x, log_eps)
         return tf.log(x, name=name)
 
 
@@ -65,6 +65,23 @@ def extract_image_patches_nd(input_tensor, ksizes, strides, rates=(1, 1, 1, 1), 
         patches = tf.transpose(patches, permutation)
 
         return patches
+
+
+def reverse_extract_image_patches_nd(input_tensor, ksizes, strides, rates=(1, 1, 1, 1), padding='SAME', name=None):
+    """
+    This function takes an input tensor with shape [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1] and
+    returns a tensor with shape [batch_size, in_rows, in_cols, 1, out_rows_per_patch, out_cols_per_patch, out_capsules, 1, 1]
+    for which
+    :param input_tensor:
+    :param ksizes:
+    :param strides:
+    :param rates:
+    :param padding:
+    :param name:
+    :return:
+    """
+
+    return input_tensor
 
 
 def expand_dims_nd(input_tensor, axis=None, name=None):
@@ -269,7 +286,46 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp):
         # Compute new activations
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
         activation = tf.nn.sigmoid(inverse_temp*(tf.subtract(beta_a, tf.reduce_sum(cost_h, axis=[-2, -1], keep_dims=True))))
+        """
+        r = tf.multiply(r, in_activation, name='mul_1')  # TODO - ~1e-4
 
+        # Update means (out_poses)
+        # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
+        r_reduce_sum = tf.reduce_sum(r, axis=[1, 2, 3], keep_dims=True, name='reduce_sum_2')
+
+        # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]             TODO - NO SAFE DIVIDE OR LOG EPS, 1 ROUTING ITERATION                   - SAFE DIVIDE AND LOG EPS 1E-6
+        mul_3 = tf.multiply(r, in_vote, name='mul_3')                                             # TODO - zeros in same places -infs appear                                -
+
+        reduce_sum_4 = tf.reduce_sum(mul_3, axis=[1, 2, 3], keep_dims=True, name='reduce_sum_4')  # TODO - zeros in same places -infs appear                                -
+
+        mean = safe_divide(reduce_sum_4, r_reduce_sum, name='safe_divide_5')                      # TODO - zeros in same places -infs appear                                -
+
+        # Update variances (same shape as mean)
+        diff_vote_mean = tf.subtract(in_vote, mean, name='sub_6')                                 # TODO - zeros in same places -infs appear                                -
+
+        square_7 = tf.square(diff_vote_mean, name='square_7')                                     # TODO - zeros in same places -infs appear, values around e-02 -> e-08    -
+
+        mul_8 = tf.multiply(r, square_7, name='mul_8')                                            # TODO - zeros in same places -infs appear, values around e-05 -> e-11    -
+
+        reduce_sum_9 = tf.reduce_sum(mul_8, axis=[1, 2, 3], keep_dims=True, name='reduce_sum_9')  # TODO - zeros in same places -infs appear values around e-2/e-3          -
+
+        variance = safe_divide(reduce_sum_9, r_reduce_sum, name='safe_divide_10')                 # TODO - zeros in same places -infs appear, values around e-1/e-2         -
+
+        # Compute cost (same shape as mean)
+        safe_log_11 = safe_log(variance, name='safe_log_11')                                      # TODO - -infs appear here due to log of 0s in variance                   -
+
+        add_12 = tf.add(beta_v, 0.5 * safe_log_11, name='add_12')
+
+        cost_h = tf.multiply(add_12, r_reduce_sum, name='cost_h_mul_13')
+
+        # Compute new activations
+        # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
+        reduce_sum_14 = tf.reduce_sum(cost_h, axis=[-2, -1], keep_dims=True, name='reduce_sum_14')
+
+        sub_15 = tf.subtract(beta_a, reduce_sum_14, 'sub_15')
+
+        activation = tf.nn.sigmoid(inverse_temp * sub_15, name='sigmoid_16')
+        """
         return mean, variance, activation
 
 
@@ -283,19 +339,26 @@ def e_step(mean, variance, activation, in_vote):
     :return: r: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
     """
     with tf.variable_scope('e_step'):
+        # TODO - SEEMS TO AT LEAST PARTLY WORK WITH ONLY 1 ROUTING ITERATION, I.E. NO E-STEP, SO THERE MUST BE AN ISSUE HERE - MOST LIKELY WITH THE FINAL OP NOT CONSIDERING RECEPTIVE FIELDS
         # Compute log(P): the log probability of each in_vote (data point)
-        a = 0.5*safe_log(2*math.pi*variance)
-        b = 0.5*safe_divide(tf.square(tf.subtract(in_vote, mean, name='b_sub')), variance)
+        a = 0.5*safe_log(2*math.pi*variance)  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
+        b = 0.5*safe_divide(tf.square(tf.subtract(in_vote, mean, name='b_sub')), variance)  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
 
-        log_p = tf.subtract(-a, b, name='log_p_sub')
+        log_p = tf.subtract(-a, b, name='log_p_sub')  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
         #log_p = log_p - (tf.reduce_max(log_p, axis=[-2, -1], keep_dims=True) - tf.log(10.))  # TODO - this line apparently helps with stability in the implementation credited in the readme, still getting NaN with it though?
 
-        log_p_sum = tf.reduce_sum(log_p, axis=[-2, -1], keep_dims=True)
+        log_p_sum = tf.reduce_sum(log_p, axis=[-2, -1], keep_dims=True)  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
 
         # Compute updated r (assignment probability/responsibility)
         # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
-        log_p_activation = activation + log_p_sum
-        r = tf.exp(log_p_activation - tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True))  # TODO - Check bottom of page 5 of paper. Should we be considering receptive fields here?
+        log_p_activation = safe_log(activation) + log_p_sum  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
+
+        # TODO - need to extract patches from log_p_activation such that we get a [batch_size, in_rows, in_cols, in_capsules, out_rows_per_patch, out_cols_per_patch, out_capsules, 1, 1]
+        log_p_activation_patches = reverse_extract_image_patches_nd(log_p_activation)
+
+        log_p_activation_sum = tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True)  # [batch_size, 1, 1, 1, 1, 1, 1, 1, 1]
+        # [batch_size, ]
+        r = tf.exp(log_p_activation - log_p_activation_sum)  # TODO - Check bottom of page 5 of paper. Should we be considering receptive fields here? Could not considering receptive fields here lead to diffusion of small values at edges of variance? should we be summing over input capsules or output capsules
 
         return r
 
@@ -327,10 +390,10 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp
         r = tf.ones([batch_size, *kernel_size, in_capsules, *out_size, out_capsules, 1, 1], name="R")/(np.prod(out_size)*out_capsules)
 
         # Create beta parameters
-        beta_v = tf.Variable(tf.random_normal([]), name="beta_v")
-        beta_a = tf.Variable(tf.random_normal([]), name="beta_a")
-        tf.summary.scalar('beta_v', beta_v)
-        tf.summary.scalar('beta_a', beta_a)
+        beta_v = tf.Variable(tf.random_normal([1, 1, 1, 1, *out_size, out_capsules, 1, 1]), name="beta_v")  # TODO - should the betas have different values for each output capsule? seems to learn much slower if they do, may end up with higher accuracy though? (not fully tested yet)
+        beta_a = tf.Variable(tf.random_normal([1, 1, 1, 1, *out_size, out_capsules, 1, 1]), name="beta_a")
+        tf.summary.histogram('beta_v', beta_v)
+        tf.summary.histogram('beta_a', beta_a)
 
         # Initialise inverse temperature parameter and compute how much to increment by for each routing iteration
         inverse_temp = init_inverse_temp
@@ -546,7 +609,6 @@ def build_capsnetem_graph(placeholders, relu_conv1_params, primarycaps_params, c
 
     # Create Class Capsules layer
     classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, **classcaps_params)
-    #classcaps_pose, classcaps_activation = classcaps_layer(primarycaps_pose, primarycaps_activation, **classcaps_params)  # TODO - routing primarycaps straight to classcaps for debugging, undo when complete
 
     # Create spread loss
     loss = spread_loss(classcaps_activation, placeholders['label'], **spread_loss_params)
