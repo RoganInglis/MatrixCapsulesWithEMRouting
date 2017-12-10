@@ -6,6 +6,23 @@ import tensorflow as tf
 import math
 
 
+# Define eps - small constant for safe division/log
+div_eps = 0
+log_eps = 0
+
+
+def safe_divide(x, y, name=None):
+    with tf.variable_scope('safe_divide'):
+        y = tf.maximum(y, div_eps)
+        return tf.divide(x, y, name=name)
+
+
+def safe_log(x, name=None):
+    with tf.variable_scope('safe_log'):
+        x = tf.maximum(x, log_eps)
+        return tf.log(x, name=name)
+
+
 def conv_out_size(in_size, kernel_size, strides, padding):
     if padding is 'valid':
         p = [0, 0]
@@ -115,7 +132,7 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
 
         # Get patches from conv_pose and concatenate over out_size in correct dimensions so that new shape is:
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1], 1, pose_size, pose_size]
-        conv_pose = extract_image_patches_nd(conv_pose, [1, *kernel_size, 1], [1, *strides, 1], padding=padding)
+        conv_pose = extract_image_patches_nd(conv_pose, [1, *kernel_size, 1], [1, *strides, 1], padding=padding, name='extract_pose_patches')
 
         # Tile over out_capsules: need to be multiplying the same input tensor by different weights for each out capsule
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1], out_capsules, pose_size, pose_size]
@@ -125,7 +142,7 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
 
         # Get patches from in_activation and expand dims
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1]]
-        activation = extract_image_patches_nd(in_activation, [1, *kernel_size, 1], [1, *strides, 1], padding=padding)
+        activation = extract_image_patches_nd(in_activation, [1, *kernel_size, 1], [1, *strides, 1], padding=padding, name='extract_activation_patches')
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1], 1, 1, 1]
         activation = tf.reshape(activation, [batch_size, *kernel_size, in_capsules, *out_size, 1, 1, 1])
         #tf.summary.histogram('convcaps_affine_activation', activation)
@@ -229,22 +246,24 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp):
         # In this step for each higher-level capsule, c, we multiply the activation, a, with the assignment probs/
         # responsibilities, r, to get the adjusted assignment probs, r'. We need to consider only capsules from the
         # previous layer that are within the receptive field of the capsules in the current layer
-        r = tf.multiply(r, in_activation)
+        r = tf.multiply(r, in_activation, name='r_update_mul')
 
         # Update means (out_poses)
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
         r_reduce_sum = tf.reduce_sum(r, axis=[1, 2, 3], keep_dims=True)
         
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
-        mean = tf.divide(tf.reduce_sum(tf.multiply(r, in_vote), axis=[1, 2, 3], keep_dims=True),
-                         r_reduce_sum)
+        mean = safe_divide(tf.reduce_sum(tf.multiply(r, in_vote, name='mean_mul'), axis=[1, 2, 3], keep_dims=True),
+                           r_reduce_sum)
 
         # Update variances (same shape as mean)
-        variance = tf.divide(tf.reduce_sum(tf.multiply(r, tf.square(in_vote - mean)), axis=[1, 2, 3], keep_dims=True),
-                             r_reduce_sum)
+        diff_vote_mean = tf.subtract(in_vote, mean, name='vote_mean_sub')
+        variance = safe_divide(tf.reduce_sum(tf.multiply(r, tf.square(diff_vote_mean, name='variance_square'),
+                                                         name='variance_mul'), axis=[1, 2, 3], keep_dims=True),
+                               r_reduce_sum)
 
         # Compute cost (same shape as mean)
-        cost_h = tf.multiply(tf.add(beta_v, tf.log(tf.sqrt(variance))), r_reduce_sum)
+        cost_h = tf.multiply(tf.add(beta_v, 0.5*safe_log(variance)), r_reduce_sum, name='cost_h_mul')
 
         # Compute new activations
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
@@ -263,18 +282,19 @@ def e_step(mean, variance, activation, in_vote):
     :return: r: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
     """
     with tf.variable_scope('e_step'):
-        # Compute p: the probability density of each in_vote (data point)
-        # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
-        a = tf.divide(1, tf.sqrt(tf.reduce_prod(2*math.pi*variance, axis=[-2, -1], keep_dims=True)))
-        # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
-        b = -0.5*tf.reduce_sum(tf.divide(tf.square(tf.subtract(in_vote, mean)), variance), axis=[-2, -1], keep_dims=True)
+        # Compute log(P): the log probability of each in_vote (data point)
+        a = 0.5*safe_log(2*math.pi*variance)
+        b = 0.5*safe_divide(tf.square(tf.subtract(in_vote, mean, name='b_sub')), variance)
 
-        # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
-        p = tf.multiply(a, tf.exp(b))
+        log_p = tf.subtract(-a, b, name='log_p_sub')
+        #log_p = log_p - (tf.reduce_max(log_p, axis=[-2, -1], keep_dims=True) - tf.log(10.))  # TODO - this line apparently helps with stability in the implementation credited in the readme, still getting NaN with it though?
+
+        log_p_sum = tf.reduce_sum(log_p, axis=[-2, -1], keep_dims=True)
 
         # Compute updated r (assignment probability/responsibility)
         # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
-        r = tf.divide(tf.multiply(activation, p), tf.reduce_sum(tf.multiply(activation, p), axis=[4, 5, 6], keep_dims=True))  # TODO - double check reduce sum dimensions here; summing over out capsules? Check bottom of page 5 of paper. Should we be considering receptive fields here
+        log_p_activation = activation + log_p_sum
+        r = tf.exp(log_p_activation - tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True))  # TODO - Check bottom of page 5 of paper. Should we be considering receptive fields here?
 
         return r
 
@@ -313,25 +333,33 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp
 
         # Initialise inverse temperature parameter and compute how much to increment by for each routing iteration
         inverse_temp = init_inverse_temp
-        inverse_temp_increment = (final_inverse_temp - init_inverse_temp)/(n_routing_iterations - 1)
+        if n_routing_iterations > 1:
+            inverse_temp_increment = (final_inverse_temp - init_inverse_temp)/(n_routing_iterations - 1)
+        else:
+            inverse_temp_increment = 0  # Cant increment anyway in this case
 
-        # TODO - should we be stopping the gradient of the mean and/or activations here?
-        #in_vote = tf.stop_gradient(in_vote)
-        #in_activation = tf.stop_gradient(in_activation)
+        # TODO - should we be stopping the gradient of the mean and/or activations here? doesnt seem to make much difference for primarycaps -> classcaps network
+        #in_vote_stopped = tf.stop_gradient(in_vote)
+        #in_activation_stopped = tf.stop_gradient(in_activation)
+        in_vote_stopped = in_vote
+        in_activation_stopped = in_activation
 
         # Do routing iterations
-        for routing_iteration in range(n_routing_iterations):
+        for routing_iteration in range(n_routing_iterations - 1):
             with tf.variable_scope("routing_iteration_{}".format(routing_iteration)):
                 # Do M-Step to get Gaussian means and standard deviations and update activations
-                mean, std_dev, activation = m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp)
-                #tf.summary.histogram('em_routing_activation', activation)
+                mean, std_dev, activation = m_step(r, in_activation_stopped, in_vote_stopped, beta_v, beta_a, inverse_temp)
+                # tf.summary.histogram('em_routing_activation', activation)
 
-                # Do E-Step to update R (only if this is not the last iteration)
-                if routing_iteration < n_routing_iterations - 1:
-                    r = e_step(mean, std_dev, activation, in_vote)
+                # Do E-Step to update R
+                r = e_step(mean, std_dev, activation, in_vote)
 
-                    # Update inverse temp
-                    inverse_temp += inverse_temp_increment
+                # Update inverse temp
+                inverse_temp += inverse_temp_increment
+
+        with tf.variable_scope("routing_iteration_{}".format(n_routing_iterations)):
+            # Do M-Step to get Gaussian means and standard deviations and update activations
+            mean, std_dev, activation = m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp)
 
         # Get rid of redundant dimensions
         pose = tf.squeeze(mean, [1, 2, 3])
@@ -517,6 +545,7 @@ def build_capsnetem_graph(placeholders, relu_conv1_params, primarycaps_params, c
 
     # Create Class Capsules layer
     classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, **classcaps_params)
+    #classcaps_pose, classcaps_activation = classcaps_layer(primarycaps_pose, primarycaps_activation, **classcaps_params)  # TODO - routing primarycaps straight to classcaps for debugging, undo when complete
 
     # Create spread loss
     loss = spread_loss(classcaps_activation, placeholders['label'], **spread_loss_params)
@@ -527,8 +556,8 @@ def build_capsnetem_graph(placeholders, relu_conv1_params, primarycaps_params, c
         labels = tf.argmax(placeholders['label'], axis=1)
         correct = tf.cast(tf.equal(labels, predictions), tf.int32)
         accuracy = tf.reduce_sum(correct)/tf.shape(correct)[0]  # reduce_mean not working here for some reason
-        summaries['loss'] = tf.summary.scalar('loss', loss)
         summaries['accuracy'] = tf.summary.scalar('accuracy', accuracy)
+    summaries['loss'] = tf.summary.scalar('loss', loss)
 
     #summaries['general'].append(tf.summary.histogram('primarycaps_activation', primarycaps_activation))
     #summaries['general'].append(tf.summary.histogram('convcaps1_activation', convcaps1_activation))

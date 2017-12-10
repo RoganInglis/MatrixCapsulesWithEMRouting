@@ -5,6 +5,7 @@ import tensorflow as tf
 import numpy as np
 from models import utils
 from tensorflow.examples.tutorials.mnist import input_data
+from tensorflow.python import debug as tf_debug
 
 
 class BaseModel(object):
@@ -45,6 +46,8 @@ class BaseModel(object):
         self.validation_summary_every = self.config['validation_summary_every']
         self.n_classes = self.config['n_classes']
 
+        self.debug = self.config['debug']
+
         # Load data
         self.data = input_data.read_data_sets('MNIST_data', one_hot=True)
 
@@ -72,6 +75,8 @@ class BaseModel(object):
         gpu_options = tf.GPUOptions(allow_growth=True)
         sess_config = tf.ConfigProto(gpu_options=gpu_options)
         self.sess = tf.Session(config=sess_config, graph=self.graph)
+        if self.debug:
+            self.sess = tf_debug.LocalCLIDebugWrapperSession(self.sess)
         self.train_summary_writer = tf.summary.FileWriter(self.result_dir, self.sess.graph)
         self.validation_summary_writer = tf.summary.FileWriter(self.validation_result_dir, self.sess.graph)
 
