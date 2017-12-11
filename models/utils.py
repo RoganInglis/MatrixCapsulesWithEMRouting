@@ -67,8 +67,19 @@ def extract_image_patches_nd(input_tensor, ksizes, strides, rates=(1, 1, 1, 1), 
         return patches
 
 
-def reduce_logconvexp():
-
+def reduce_logconv2d_transposeexp(input_tensor, ksizes, strides, rates=(1, 1, 1, 1), padding='SAME', name=None):
+    """
+    This function takes an input tensor with shape [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1] and
+    returns a tensor with shape [batch_size, in_rows, in_cols, 1, out_rows_per_patch, out_cols_per_patch, out_capsules, 1, 1]
+    for which
+    :param input_tensor:
+    :param ksizes:
+    :param strides:
+    :param rates:
+    :param padding:
+    :param name:
+    :return:
+    """
 
 
 def expand_dims_nd(input_tensor, axis=None, name=None):
@@ -329,18 +340,19 @@ def e_step(mean, variance, activation, in_vote):
         # TODO - SEEMS TO AT LEAST PARTLY WORK WITH ONLY 1 ROUTING ITERATION, I.E. NO E-STEP, SO THERE MUST BE AN ISSUE HERE - MOST LIKELY WITH THE FINAL OP NOT CONSIDERING RECEPTIVE FIELDS
         # Compute log(P): the log probability of each in_vote (data point)
         a = 0.5*safe_log(2*math.pi*variance)  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
-        b = 0.5*safe_divide(tf.square(tf.subtract(in_vote, mean, name='b_sub')), variance)  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
+        b = 0.5*safe_divide(tf.square(tf.subtract(in_vote, mean, name='b_sub')), variance)  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
 
-        log_p = tf.subtract(-a, b, name='log_p_sub')  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
+        log_p = tf.subtract(-a, b, name='log_p_sub')  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
         #log_p = log_p - (tf.reduce_max(log_p, axis=[-2, -1], keep_dims=True) - tf.log(10.))  # TODO - this line apparently helps with stability in the implementation credited in the readme, still getting NaN with it though?
 
-        log_p_sum = tf.reduce_sum(log_p, axis=[-2, -1], keep_dims=True)  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
+        log_p_sum = tf.reduce_sum(log_p, axis=[-2, -1], keep_dims=True)  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
 
         # Compute updated r (assignment probability/responsibility)
         # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
-        log_p_activation = safe_log(activation) + log_p_sum  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
+        log_p_activation = safe_log(activation) + log_p_sum  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
 
-        log_p_activation_sum = tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True)  # [batch_size, 1, 1, 1, 1, 1, 1, 1, 1]  TODO - here we want to do reduce_logconvexp to get [batch_size, in_rows, in_cols, 1, 1, 1, 1, 1, 1]
+        log_p_activation_sum = tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True)  # [batch_size, kernel_rows, kernel_cols, in_capsules, 1, 1, 1, 1, 1]  TODO - want to do this sum only over out_rows and out_cols for which the element specified by kernel_row, kernel column is within the receptive field
+
         # [batch_size, ]
         r = tf.exp(log_p_activation - log_p_activation_sum)  # TODO - Check bottom of page 5 of paper. Should we be considering receptive fields here? Could not considering receptive fields here lead to diffusion of small values at edges of variance? should we be summing over input capsules or output capsules
 
