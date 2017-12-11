@@ -50,7 +50,7 @@ flags.DEFINE_integer('convcaps1_out_capsules', 32, 'Number of capsules for the f
 flags.DEFINE_integer('convcaps1_kernel_size', 3, 'Kernel size for the first conv caps layer')
 flags.DEFINE_integer('convcaps1_strides', 2, 'Strides for convolution in the first conv caps layer')
 flags.DEFINE_string('convcaps1_padding', 'VALID', 'SAME or VALID padding for the first conv capsule layer')
-flags.DEFINE_integer('convcaps1_n_routing_iterations', 1, 'Number of routing iterations for the first conv caps layer')
+flags.DEFINE_integer('convcaps1_n_routing_iterations', 2, 'Number of routing iterations for the first conv caps layer')
 flags.DEFINE_float('convcaps1_init_inverse_temp', 0.001, 'Initial inverse temperature value for the first conv caps layer')
 flags.DEFINE_float('convcaps1_final_inverse_temp', 0.01, 'Final inverse temperature value for the first conv caps layer')
 
@@ -59,12 +59,12 @@ flags.DEFINE_integer('convcaps2_out_capsules', 32, 'Number of capsules for the s
 flags.DEFINE_integer('convcaps2_kernel_size', 3, 'Kernel size for the second conv caps layer')
 flags.DEFINE_integer('convcaps2_strides', 1, 'Strides for convolution in the second conv caps layer')
 flags.DEFINE_string('convcaps2_padding', 'VALID', 'SAME or VALID padding for the second conv capsule layer')
-flags.DEFINE_integer('convcaps2_n_routing_iterations', 1, 'Number of routing iterations for the second conv caps layer')
+flags.DEFINE_integer('convcaps2_n_routing_iterations', 2, 'Number of routing iterations for the second conv caps layer')
 flags.DEFINE_float('convcaps2_init_inverse_temp', 0.001, 'Initial inverse temperature value for the second conv caps layer')
 flags.DEFINE_float('convcaps2_final_inverse_temp', 0.01, 'Final inverse temperature value for the second conv caps layer')
 
 # Class Capsules
-flags.DEFINE_integer('classcaps_n_routing_iterations', 1, 'Number of routing iterations for the class caps layer')
+flags.DEFINE_integer('classcaps_n_routing_iterations', 2, 'Number of routing iterations for the class caps layer')
 flags.DEFINE_float('classcaps_init_inverse_temp', 0.001, 'Initial inverse temperature value for the class caps layer')
 flags.DEFINE_float('classcaps_final_inverse_temp', 0.01, 'Final inverse temperature value for the class caps layer')
 
