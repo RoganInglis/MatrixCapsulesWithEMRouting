@@ -123,6 +123,12 @@ def expand_dims_nd_v_reshape_speed_test():
         print("Mean reshape time: {} \n Mean expand_dims_nd time: {}".format(mean_reshape_time, mean_expand_dims_nd_time))
 
 
+def conv2d_transpose_test():
+    input = np.reshape(np.arange(3*3), [1, 3, 3, 1])
+
+    placeholder = tf.placeholder('float', [1, 3, 3, 1])
+    conv2d_transpose = tf.nn.conv2d_transpose(placeholder, )
+
 if __name__ == '__main__':
     #get_conv_slices_test()
     #extract_image_slices_nd_test()
