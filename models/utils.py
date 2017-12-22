@@ -204,8 +204,11 @@ def patches_to_sparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='SAME',
                                 for c_d1 in range(capsule_dim1):
                                     for c_d2 in range(capsule_dim2):
                                         # Need to take into account strides, rates, padding
+                                        # Can't have padding on the outside as we need only indices within the original
+                                        # image. Can switch it to the other side of the kernel as the rest of the full
+                                        # array should be zeros anyway.
                                         # If padding is on top we need to switch it to the bottom by adding k_dash to the index
-                                        # If padding is on the bottom, need to switch it to the bottom by subtracting k_dash from index
+                                        # If padding is on the bottom, need to switch it to the top by subtracting k_dash from index
                                         row = i_o * strides[1] + i_k * rates[1] - p_rows
                                         if row < 0:
                                             row = row + k_dash[0]
