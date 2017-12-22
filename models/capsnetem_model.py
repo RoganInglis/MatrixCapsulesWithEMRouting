@@ -7,42 +7,39 @@ import tensorflow as tf
 
 class CapsNetEMModel(BaseModel):
     def set_model_props(self, config):
-        # ReLU Conv1
-        self.relu_conv1_kernel_size = self.config['relu_conv1_kernel_size']
-        self.relu_conv1_filters = self.config['relu_conv1_filters']
-        self.relu_conv1_stride = self.config['relu_conv1_stride']
-
-        # PrimaryCaps
-        self.primarycaps_out_capsules = self.config['primarycaps_out_capsules']
-        self.pose_size = self.config['pose_size']
-
-        # ConvCaps1
-        self.convcaps1_out_capsules = self.config['convcaps1_out_capsules']
-        self.convcaps1_kernel_size = self.config['convcaps1_kernel_size']
-        self.convcaps1_strides = self.config['convcaps1_strides']
-        self.convcaps1_padding = self.config['convcaps1_padding']
-        self.convcaps1_n_routing_iterations = self.config['convcaps1_n_routing_iterations']
-        self.convcaps1_init_inverse_temp = self.config['convcaps1_init_inverse_temp']
-        self.convcaps1_final_inverse_temp = self.config['convcaps1_final_inverse_temp']
-
-        # ConvCaps2
-        self.convcaps2_out_capsules = self.config['convcaps2_out_capsules']
-        self.convcaps2_kernel_size = self.config['convcaps2_kernel_size']
-        self.convcaps2_strides = self.config['convcaps2_strides']
-        self.convcaps2_padding = self.config['convcaps2_padding']
-        self.convcaps2_n_routing_iterations = self.config['convcaps2_n_routing_iterations']
-        self.convcaps2_init_inverse_temp = self.config['convcaps2_init_inverse_temp']
-        self.convcaps2_final_inverse_temp = self.config['convcaps2_final_inverse_temp']
-
-        # Class Capsules
-        self.classcaps_n_routing_iterations = self.config['classcaps_n_routing_iterations']
-        self.classcaps_init_inverse_temp = self.config['classcaps_init_inverse_temp']
-        self.classcaps_final_inverse_temp = self.config['classcaps_final_inverse_temp']
-
         # Spread Loss
         self.initial_margin = self.config['initial_margin']
         self.final_margin = self.config['final_margin']
         self.margin_decay_steps = self.config['margin_decay_steps']
+
+        # Set up parameter dicts
+        self.relu_conv1_params = {'kernel_size': self.config['relu_conv1_kernel_size'],
+                                  'filters': self.config['relu_conv1_filters'],
+                                  'strides': self.config['relu_conv1_stride']}
+
+        self.primarycaps_params = {'out_capsules': self.config['primarycaps_out_capsules'],
+                                   'pose_size': self.config['pose_size']}
+
+        self.convcaps1_params = {'out_capsules': self.config['convcaps1_out_capsules'],
+                                 'kernel_size': self.config['convcaps1_kernel_size'],
+                                 'strides': self.config['convcaps1_strides'],
+                                 'padding': self.config['convcaps1_padding'],
+                                 'n_routing_iterations': self.config['convcaps1_n_routing_iterations'],
+                                 'init_inverse_temp': self.config['convcaps1_init_inverse_temp'],
+                                 'final_inverse_temp': self.config['convcaps1_final_inverse_temp']}
+
+        self.convcaps2_params = {'out_capsules': self.config['convcaps2_out_capsules'],
+                                 'kernel_size': self.config['convcaps2_kernel_size'],
+                                 'strides': self.config['convcaps2_strides'],
+                                 'padding': self.config['convcaps2_padding'],
+                                 'n_routing_iterations': self.config['convcaps2_n_routing_iterations'],
+                                 'init_inverse_temp': self.config['convcaps2_init_inverse_temp'],
+                                 'final_inverse_temp': self.config['convcaps2_final_inverse_temp']}
+
+        self.classcaps_params = {'n_classes': self.config['n_classes'],
+                                 'n_routing_iterations': self.config['classcaps_n_routing_iterations'],
+                                 'init_inverse_temp': self.config['classcaps_init_inverse_temp'],
+                                 'final_inverse_temp': self.config['classcaps_final_inverse_temp']}
 
     def get_best_config(self):
         # This function is here to be overridden completely.
@@ -65,46 +62,17 @@ class CapsNetEMModel(BaseModel):
             self.margin = tf.train.polynomial_decay(self.initial_margin, self.global_step, self.margin_decay_steps,
                                                     self.final_margin)
 
-            # Set up parameter dicts
-            relu_conv1_params = {'kernel_size': self.relu_conv1_kernel_size,
-                                 'filters': self.relu_conv1_filters,
-                                 'strides': self.relu_conv1_stride}
-
-            primarycaps_params = {'out_capsules': self.primarycaps_out_capsules,
-                                  'pose_size': self.pose_size}
-
-            convcaps1_params = {'out_capsules': self.convcaps1_out_capsules,
-                                'kernel_size': self.convcaps1_kernel_size,
-                                'strides': self.convcaps1_strides,
-                                'padding': self.convcaps1_padding,
-                                'n_routing_iterations': self.convcaps1_n_routing_iterations,
-                                'init_inverse_temp': self.convcaps1_init_inverse_temp,
-                                'final_inverse_temp': self.convcaps1_final_inverse_temp}
-
-            convcaps2_params = {'out_capsules': self.convcaps2_out_capsules,
-                                'kernel_size': self.convcaps2_kernel_size,
-                                'strides': self.convcaps2_strides,
-                                'padding': self.convcaps2_padding,
-                                'n_routing_iterations': self.convcaps2_n_routing_iterations,
-                                'init_inverse_temp': self.convcaps2_init_inverse_temp,
-                                'final_inverse_temp': self.convcaps2_final_inverse_temp}
-
-            classcaps_params = {'n_classes': self.n_classes,
-                                'n_routing_iterations': self.classcaps_n_routing_iterations,
-                                'init_inverse_temp': self.classcaps_init_inverse_temp,
-                                'final_inverse_temp': self.classcaps_final_inverse_temp}
-
-            spread_loss_params = {'margin': self.margin}
+            self.spread_loss_params = {'margin': self.margin}
 
             self.loss, self.predictions, self.accuracy, self.correct, self.summaries = utils.build_capsnetem_graph(
-                                                                                                   self.placeholders,
-                                                                                                   relu_conv1_params,
-                                                                                                   primarycaps_params,
-                                                                                                   convcaps1_params,
-                                                                                                   convcaps2_params,
-                                                                                                   classcaps_params,
-                                                                                                   spread_loss_params,
-                                                                                                   image_dim=self.image_dim)
+                                                                                               self.placeholders,
+                                                                                               self.relu_conv1_params,
+                                                                                               self.primarycaps_params,
+                                                                                               self.convcaps1_params,
+                                                                                               self.convcaps2_params,
+                                                                                               self.classcaps_params,
+                                                                                               self.spread_loss_params,
+                                                                                               image_dim=self.image_dim)
 
             # Define optimiser
             self.optim = tf.train.AdamOptimizer(self.learning_rate)

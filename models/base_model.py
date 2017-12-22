@@ -70,6 +70,8 @@ class BaseModel(object):
         with self.graph.as_default():
             self.saver = tf.train.Saver(max_to_keep=50)
             self.init_op = tf.group(tf.global_variables_initializer(), tf.local_variables_initializer())
+            self.trainable_parameters = np.sum([np.prod(variable.get_shape().as_list())
+                                                for variable in tf.trainable_variables()])
 
         # Add all the other common code for the initialization here
         gpu_options = tf.GPUOptions(allow_growth=True)

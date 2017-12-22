@@ -6,47 +6,127 @@ import tensorflow as tf
 import math
 
 
+# TODO - make sure all functions have been fully tested
+# TODO - sort out interchangeable use of 'size' and 'shape'; change to 'shape'
 # Define eps - small constant for safe division/log
-div_eps = 1e-6  # TODO - with these > 0 we dont get NaNs but the loss just seems to increase linearly
-log_eps = 1e-6
+div_eps = 1e-9
+log_eps = 1e-9
 
 
-def safe_divide(x, y, name=None):
-    with tf.variable_scope('safe_divide'):
-        y = tf.maximum(y, div_eps)
-        return tf.divide(x, y, name=name)
+def safe_divide(x, y, mode='EPS', name=None):
+    if name is None:
+        scope_name = 'safe_divide'
+    else:
+        scope_name = name
+    with tf.variable_scope(scope_name):
+        if mode == 'ZERO':
+            z = tf.divide(x, y, name=name)
+            z = tf.where(tf.is_finite(z), z, tf.zeros_like(z))
+        else:
+            y = tf.maximum(y, div_eps)
+            z = tf.divide(x, y, name=name)
+        return z
 
 
-def safe_log(x, name=None):
-    with tf.variable_scope('safe_log'):
-        x = tf.maximum(x, log_eps)
-        return tf.log(x, name=name)
+def safe_log(x, mode='EPS', name=None):
+    if name is None:
+        scope_name = 'safe_log'
+    else:
+        scope_name = name
+    with tf.variable_scope(scope_name):
+        if mode == 'ZERO':
+            x = tf.log(x)
+            x = tf.where(tf.is_finite(x), x, tf.zeros_like(x))
+        else:
+            x = tf.maximum(x, log_eps)
+            x = tf.log(x)
+        return x
 
 
-def conv_out_size(in_size, kernel_size, strides, padding):
+def conv_out_size(in_size, kernel_size, strides, rates, padding):
+    in_size = np.array(in_size)
+    k = np.array(kernel_size)
+    s = np.array(strides)
+    r = np.array(rates)
+
+    k_dash = k + (k - 1) * (r - 1)
+
     if padding is 'VALID':
-        p = [0, 0]
+        p = np.array([0, 0])
     else:
         # Skipping the factor of 1/2 followed by the factor of 2 here as p is not needed for anything else here
-        p = [kernel_size[0] - 1, kernel_size[1] - 1]
+        p = k_dash - 1
 
-    out_size = [(in_size[0] + p[0] - kernel_size[0]) // strides[0] + 1,
-                (in_size[1] + p[1] - kernel_size[1]) // strides[1] + 1]
-    return out_size
+    out_size = (in_size + p - k_dash)/s + 1
+
+    return list(out_size.astype(np.int32))
 
 
-def extract_image_patches_nd(input_tensor, ksizes, strides, rates=(1, 1, 1, 1), padding='SAME', name=None):
+def conv_in_size(out_size, kernel_size, strides, rates, padding):
+    # TODO - the desired output from this is ambiguous in the case of strides > kernel_size/2 (?) and 'VALID' padding not sure if this can be solved within this function
+    # Convert sizes to numpy arrays
+    out_size = np.array(out_size)
+    k = np.array(kernel_size)
+    s = np.array(strides)
+    r = np.array(rates)
+
+    k_dash = k + (k - 1)*(r - 1)
+
+    if padding is 'VALID':
+        p = np.array([0, 0])
+    else:
+        # Skipping the factor of 1/2 followed by the factor of 2 here as p is not needed for anything else here
+        p = (k_dash - 1)
+
+    in_size = (out_size - 1)*s + k_dash - p
+
+    return list(in_size.astype(np.int32))
+
+
+def get_correct_conv_param(param):
+    if type(param) is int:
+        param = [1, param, param, 1]
+    elif len(param) == 2:
+        param = [1, *param, 1]
+    elif len(param) == 4:
+        param = list(param)
+    else:
+        raise ValueError('Incorrect parameter format')
+    return param
+
+
+def get_correct_ksizes_strides_rates(ksizes, strides, rates):
+    """
+    Take int, list or tuple values for ksizes, strides and rates and convert to correct form
+    :param ksizes: int, list or tuple
+    :param strides: int, list or tuple
+    :param rates: int, list or tuple
+    :return: ksizes, strides, rates in correct form (4 element list)
+    """
+    ksizes = get_correct_conv_param(ksizes)
+    strides = get_correct_conv_param(strides)
+    rates = get_correct_conv_param(rates)
+    return ksizes, strides, rates
+
+
+def extract_image_patches_nd(input_tensor, ksizes, strides, rates=(1, 1, 1, 1), padding='SAME', return_sparse=False,
+                             name=None):
     """
     Extension of tf.extract_image_patches to tensors of arbitrary dimensions
     :param input_tensor: Tensor with at least 4 dimensions - [batch_size, image_height, image_width, depth, ...]
-    :param ksizes: Tuple or List containing 4D kernel size - [1, kernel_rows, kernel_cols, 1]
-    :param strides: Tuple or List containing 4D strides - [1, stride_rows, stride_cols, 1]
-    :param rates: Tuple or List containing rates for dilated kernels - [1, rate_rows, rate_cols, 1]
+    :param ksizes: Int, Tuple or List containing 4D kernel size - [1, kernel_rows, kernel_cols, 1]
+    :param strides: Int, Tuple or List containing 4D strides - [1, stride_rows, stride_cols, 1]
+    :param rates: Int, Tuple or List containing rates for dilated kernels - [1, rate_rows, rate_cols, 1]
     :param padding: 'SAME' or 'VALID' specifying the padding to use
     :param name: Name of the extract_image_patches op
     :return: patches: Tensor with shape [batch_size, kernel_rows, kernel_cols, depth, out_rows, out_cols, ...]
     """
-    with tf.variable_scope('extract_image_patches_nd'):
+    if name is None:
+        scope_name = 'extract_image_patches_nd'
+    else:
+        scope_name = name
+    ksizes, strides, rates = get_correct_ksizes_strides_rates(ksizes, strides, rates)
+    with tf.variable_scope(scope_name):
         # Get shape of input_tensor
         input_shape = input_tensor.get_shape().as_list()
         batch_size = tf.shape(input_tensor)[0]
@@ -64,22 +144,167 @@ def extract_image_patches_nd(input_tensor, ksizes, strides, rates=(1, 1, 1, 1), 
         permutation = [0, 3, 4, 5, 1, 2, *range(6, len(patches_shape))]
         patches = tf.transpose(patches, permutation)
 
+        if return_sparse:
+            patches = patches_to_sparse(patches, strides, rates, padding)
+
         return patches
 
 
-def reduce_logconv2d_transposeexp(input_tensor, ksizes, strides, rates=(1, 1, 1, 1), padding='SAME', name=None):
+def patches_to_sparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='SAME', name=None):
     """
-    This function takes an input tensor with shape [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1] and
-    returns a tensor with shape [batch_size, in_rows, in_cols, 1, out_rows_per_patch, out_cols_per_patch, out_capsules, 1, 1]
-    for which
-    :param input_tensor:
-    :param ksizes:
+    Convert a dense tensor containing image patches to a sparse tensor for which the image patches retain their original
+    indices
+    :param input_tensor: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
+    :param strides:
+    :param rates:
+    :param padding:
+    :param name: Name for the op
+    :return: sparse_patches: SparseTensor with shape [batch_size, im_rows, im_cols, ...]
+    """
+    if name is None:
+        scope_name = 'patches_to_sparse'
+    else:
+        scope_name = name
+    with tf.variable_scope(scope_name):
+        # Get required shapes
+        batch_size = tf.shape(input_tensor)[0]
+        shape_list = input_tensor.get_shape().as_list()
+        kernel_rows = shape_list[1]
+        kernel_cols = shape_list[2]
+        in_capsules = shape_list[3]
+        out_rows = shape_list[4]
+        out_cols = shape_list[5]
+        out_capsules = shape_list[6]
+        capsule_dim1 = shape_list[7]
+        capsule_dim2 = shape_list[8]
+
+        # Compute input shape
+        in_rows, in_cols = conv_in_size([out_rows, out_cols], [kernel_rows, kernel_cols], list(strides[1:3]),
+                                        list(rates[1:3]), padding)
+
+        k_dash = [kernel_rows + (kernel_rows - 1)*(strides[1] - 1), kernel_cols + (kernel_cols - 1)*(strides[2] - 1)]
+        if padding is 'VALID':
+            p_rows = 0
+            p_cols = 0
+        else:
+            # TODO - assuming for even kernel sizes the larger padding goes on the end by using floor, check this is correct
+            p_rows = math.floor((k_dash[0] - 1)/2)
+            p_cols = math.floor((k_dash[1] - 1)/2)
+
+        # Now we need to get the correct indices for every element in input_tensor in the right order
+        indices = []
+        # Construct for first batch element, in capsule and out capsule
+        # TODO - can do this more efficiently by doing loops separately and combining (doesn't take long as is though)
+        for i_k in range(kernel_rows):
+            for j_k in range(kernel_cols):
+                for c_i in range(in_capsules):
+                    for i_o in range(out_rows):
+                        for j_o in range(out_cols):
+                            for c_o in range(out_capsules):
+                                for c_d1 in range(capsule_dim1):
+                                    for c_d2 in range(capsule_dim2):
+                                        # Need to take into account strides, rates, padding
+                                        # If padding is on top we need to switch it to the bottom by adding k_dash to the index
+                                        # If padding is on the bottom, need to switch it to the bottom by subtracting k_dash from index
+                                        row = i_o * strides[1] + i_k * rates[1] - p_rows
+                                        if row < 0:
+                                            row = row + k_dash[0]
+                                        elif row > in_rows - 1:
+                                            row = row - k_dash[0]
+
+                                        col = j_o * strides[2] + j_k * rates[2] - p_cols
+                                        if col < 0:
+                                            col = col + k_dash[1]
+                                        elif col > in_cols - 1:
+                                            col = col - k_dash[1]
+
+                                        indices.append(np.array([row, col, c_i, i_o, j_o, c_o, c_d1, c_d2]))
+
+        indices_per_batch = len(indices)
+        indices = np.stack(indices)
+
+        # Convert indices to constant tensor with dtype tf.int64
+        indices = tf.constant(indices, dtype=tf.int64)
+
+        # Extend indices over batch - Should be done within the graph so we can use variable batch size
+        batch_indices = tf.cast(tf.reshape(tf.tile(tf.expand_dims(tf.range(batch_size), axis=1), [1, indices_per_batch]),
+                                           [batch_size*indices_per_batch, 1]), dtype=tf.int64)
+        indices = tf.concat([batch_indices, tf.tile(indices, [batch_size, 1])], axis=1)
+
+        # Reshape input_tensor to 1D
+        values = tf.reshape(input_tensor,
+                            shape=[batch_size*kernel_rows*kernel_cols*in_capsules*out_rows*out_cols*out_capsules*capsule_dim1*capsule_dim2])
+
+        # Create constant tensor containing dense shape
+        # TODO - might be a better way to do this but this works
+        dense_shape = tf.shape(input_tensor, out_type=tf.int64)
+        dense_shape = tf.add(dense_shape,
+                             tf.constant([0, in_rows - kernel_rows, in_cols - kernel_cols, 0, 0, 0, 0, 0, 0],
+                                         dtype=tf.int64))
+
+        # Create sparse tensor
+        sparse_patches = tf.SparseTensor(indices, values, dense_shape)
+        return sparse_patches
+
+
+def patches_to_full(input_tensor, strides, rates=(1, 1, 1, 1), padding='SAME', name=None):
+    """
+    Converts a tensor of image patches to a full tensor in which the image patches are embedded within an array of zeros
+    with the same shape as the original image
+    :param input_tensor: Tensor containing image patches with shape [batch_size, kernel_rows, kernel_cols, in_capsules,
+                         out_rows, out_cols, out_capsules, ?, ?]
     :param strides:
     :param rates:
     :param padding:
     :param name:
     :return:
     """
+    if name is None:
+        scope_name = 'patches_to_full'
+    else:
+        scope_name = name
+    with tf.variable_scope(scope_name):
+        # First convert to sparse
+        sparse_patches = patches_to_sparse(input_tensor, strides, rates, padding)
+
+        # Then convert sparse to dense
+        dense_patches = tf.sparse_tensor_to_dense(sparse_patches, validate_indices=False)
+
+        # This seems to lose the shape so reset shape
+        full_shape = get_patches_full_shape(input_tensor, strides, rates, padding)
+        dense_patches = tf.reshape(dense_patches, full_shape)
+
+        return dense_patches
+
+
+def get_patches_full_shape(patches_tensor, strides, rates=(1, 1, 1, 1), padding='SAME', name=None):
+    """
+    Get the eqivalent full shape for a tensor containing image patches
+    :param patches_tensor:
+    :param strides:
+    :param rates:
+    :param padding:
+    :param name:
+    :return:
+    """
+    if name is None:
+        scope_name = 'get_patches_full_shape'
+    else:
+        scope_name = name
+    with tf.variable_scope(scope_name):
+        batch_size = tf.shape(patches_tensor)[0]
+        shape = patches_tensor.get_shape().as_list()
+        kernel_size = shape[1:3]
+        in_capsules = shape[3]
+        out_size = shape[4:6]
+        out_capsules = shape[6]
+        remaining_dims = shape[7:]
+
+        in_size = conv_in_size(out_size, kernel_size, strides[1:3], rates[1:3], padding)
+
+        full_shape = [batch_size, *in_size, in_capsules, *out_size, out_capsules, *remaining_dims]
+
+        return full_shape
 
 
 def expand_dims_nd(input_tensor, axis=None, name=None):
@@ -104,7 +329,8 @@ def expand_dims_nd(input_tensor, axis=None, name=None):
     return input_tensor
 
 
-def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size, strides, padding):
+def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size, strides, rates=(1, 1, 1, 1),
+                              padding='SAME'):
     """
     Creates the TensorFlow graph for the convolutional affine transform performed prior to routing in a convolutional
     capsule layer. This also extracts image patches from and reshapes in_activation in order to keep the code and graph
@@ -114,16 +340,13 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
     :param out_capsules: Int specifying the number of output capsules
     :param kernel_size: Int, Tuple or List specifying the size of the convolution kernel (assuming square kernel if int)
     :param strides: Int, Tuple or List specifying the strides for the convolution (assuming equal over dimensions if int)
+    :param rates:
     :param padding: 'valid' or 'same' specifying padding to use in the same way as tf.nn.conv2d
     :return: vote: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
              activation: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
     """
     # Sort out different possible kernel_size and strides formats
-    if isinstance(kernel_size, int):
-        kernel_size = [kernel_size, kernel_size]
-    if isinstance(strides, int):
-        strides = [strides, strides]
-
+    ksizes, strides, rates = get_correct_ksizes_strides_rates(kernel_size, strides, rates)
     with tf.variable_scope('convcaps_affine_transform'):
         # Get required shape values
         batch_size = tf.shape(in_pose)[0]
@@ -134,11 +357,11 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
         pose_size = shape_list[4]
 
         # Compute output im grid size
-        out_size = conv_out_size([in_rows, in_cols], kernel_size, strides, padding)
+        out_size = conv_out_size([in_rows, in_cols], ksizes[1:3], strides[1:3], rates[1:3], padding)
 
         # Create convolutional matmul kernel and tile over batch and out_size (as we need the same kernel to be
         # multiplied by each patch of conv_pose for each element in the batch)
-        kernel = tf.Variable(tf.random_normal([1, *kernel_size, in_capsules, 1, 1, out_capsules, pose_size, pose_size]),
+        kernel = tf.Variable(tf.random_normal([1, *ksizes[1:3], in_capsules, 1, 1, out_capsules, pose_size, pose_size]),
                              name='kernel')
         kernel = tf.tile(kernel, [batch_size, 1, 1, 1, *out_size, 1, 1, 1])
 
@@ -147,7 +370,8 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
 
         # Get patches from conv_pose and concatenate over out_size in correct dimensions so that new shape is:
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1], 1, pose_size, pose_size]
-        conv_pose = extract_image_patches_nd(conv_pose, [1, *kernel_size, 1], [1, *strides, 1], padding=padding, name='extract_pose_patches')
+        conv_pose = extract_image_patches_nd(conv_pose, ksizes, strides, rates=rates, padding=padding,
+                                             name='extract_pose_patches')
 
         # Tile over out_capsules: need to be multiplying the same input tensor by different weights for each out capsule
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1], out_capsules, pose_size, pose_size]
@@ -157,9 +381,10 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
 
         # Get patches from in_activation and expand dims
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1]]
-        activation = extract_image_patches_nd(in_activation, [1, *kernel_size, 1], [1, *strides, 1], padding=padding, name='extract_activation_patches')
+        activation = extract_image_patches_nd(in_activation, ksizes, strides, rates=rates, padding=padding,
+                                              name='extract_activation_patches')
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1], 1, 1, 1]
-        activation = tf.reshape(activation, [batch_size, *kernel_size, in_capsules, *out_size, 1, 1, 1])
+        activation = tf.reshape(activation, [batch_size, *ksizes[1:3], in_capsules, *out_size, 1, 1, 1])
         #tf.summary.histogram('convcaps_affine_activation', activation)
 
         return vote, activation
@@ -246,8 +471,8 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp):
               layer.
     :param in_activation: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, 1, 1, 1]
     :param in_vote: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
-    :param beta_v: Scalar TensorFlow variable
-    :param beta_a: Scalar TensorFlow variable
+    :param beta_v: tf.Variable
+    :param beta_a: tf.Variable
     :param inverse_temp: Scalar
     :return: mean: Tensor with shape [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
                    The re-computed means of the Gaussians (output poses of the layer)
@@ -261,7 +486,7 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp):
         # In this step for each higher-level capsule, c, we multiply the activation, a, with the assignment probs/
         # responsibilities, r, to get the adjusted assignment probs, r'. We need to consider only capsules from the
         # previous layer that are within the receptive field of the capsules in the current layer
-        r = tf.multiply(r, in_activation, name='r_update_mul')  # TODO - ~1e-4
+        r = tf.multiply(r, in_activation, name='r_update_mul')
 
         # Update means (out_poses)
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
@@ -269,61 +494,22 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp):
         
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
         mean = safe_divide(tf.reduce_sum(tf.multiply(r, in_vote, name='mean_mul'), axis=[1, 2, 3], keep_dims=True),
-                           r_reduce_sum)  # TODO - mean_mul has zeros here in the same places that the -infs seem to appear below
+                           r_reduce_sum)
 
         # Update variances (same shape as mean)
         diff_vote_mean = tf.subtract(in_vote, mean, name='vote_mean_sub')
         variance = safe_divide(tf.reduce_sum(tf.multiply(r, tf.square(diff_vote_mean, name='diff_vote_mean_square'),
                                                          name='variance_mul'), axis=[1, 2, 3], keep_dims=True),
-                               r_reduce_sum)  # TODO - real issue seems to be here?
+                               r_reduce_sum)
 
         # Compute cost (same shape as mean)
-        cost_h = tf.multiply(tf.add(beta_v, 0.5*safe_log(variance, name='log_variance'), name='add_beta_log_variance'),
-                             r_reduce_sum, name='cost_h_mul')  # TODO - -inf appears here first
+        cost_h = tf.multiply(tf.add(beta_v, 0.5*safe_log(tf.sqrt(variance), name='log_stdd'), name='add_beta_log_stdd'),
+                             r_reduce_sum, name='cost_h_mul')
 
         # Compute new activations
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
-        activation = tf.nn.sigmoid(inverse_temp*(tf.subtract(beta_a, tf.reduce_sum(cost_h, axis=[-2, -1], keep_dims=True))))
-        """
-        r = tf.multiply(r, in_activation, name='mul_1')  # TODO - ~1e-4
-
-        # Update means (out_poses)
-        # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
-        r_reduce_sum = tf.reduce_sum(r, axis=[1, 2, 3], keep_dims=True, name='reduce_sum_2')
-
-        # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]             TODO - NO SAFE DIVIDE OR LOG EPS, 1 ROUTING ITERATION                   - SAFE DIVIDE AND LOG EPS 1E-6
-        mul_3 = tf.multiply(r, in_vote, name='mul_3')                                             # TODO - zeros in same places -infs appear                                -
-
-        reduce_sum_4 = tf.reduce_sum(mul_3, axis=[1, 2, 3], keep_dims=True, name='reduce_sum_4')  # TODO - zeros in same places -infs appear                                -
-
-        mean = safe_divide(reduce_sum_4, r_reduce_sum, name='safe_divide_5')                      # TODO - zeros in same places -infs appear                                -
-
-        # Update variances (same shape as mean)
-        diff_vote_mean = tf.subtract(in_vote, mean, name='sub_6')                                 # TODO - zeros in same places -infs appear                                -
-
-        square_7 = tf.square(diff_vote_mean, name='square_7')                                     # TODO - zeros in same places -infs appear, values around e-02 -> e-08    -
-
-        mul_8 = tf.multiply(r, square_7, name='mul_8')                                            # TODO - zeros in same places -infs appear, values around e-05 -> e-11    -
-
-        reduce_sum_9 = tf.reduce_sum(mul_8, axis=[1, 2, 3], keep_dims=True, name='reduce_sum_9')  # TODO - zeros in same places -infs appear values around e-2/e-3          -
-
-        variance = safe_divide(reduce_sum_9, r_reduce_sum, name='safe_divide_10')                 # TODO - zeros in same places -infs appear, values around e-1/e-2         -
-
-        # Compute cost (same shape as mean)
-        safe_log_11 = safe_log(variance, name='safe_log_11')                                      # TODO - -infs appear here due to log of 0s in variance                   -
-
-        add_12 = tf.add(beta_v, 0.5 * safe_log_11, name='add_12')
-
-        cost_h = tf.multiply(add_12, r_reduce_sum, name='cost_h_mul_13')
-
-        # Compute new activations
-        # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
-        reduce_sum_14 = tf.reduce_sum(cost_h, axis=[-2, -1], keep_dims=True, name='reduce_sum_14')
-
-        sub_15 = tf.subtract(beta_a, reduce_sum_14, 'sub_15')
-
-        activation = tf.nn.sigmoid(inverse_temp * sub_15, name='sigmoid_16')
-        """
+        activation = tf.nn.sigmoid(inverse_temp*(tf.subtract(beta_a, tf.reduce_sum(cost_h, axis=[-2, -1],
+                                                                                   keep_dims=True))))
         return mean, variance, activation
 
 
@@ -337,29 +523,28 @@ def e_step(mean, variance, activation, in_vote):
     :return: r: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
     """
     with tf.variable_scope('e_step'):
-        # TODO - SEEMS TO AT LEAST PARTLY WORK WITH ONLY 1 ROUTING ITERATION, I.E. NO E-STEP, SO THERE MUST BE AN ISSUE HERE - MOST LIKELY WITH THE FINAL OP NOT CONSIDERING RECEPTIVE FIELDS
+        # TODO - SEEMS TO AT LEAST PARTLY WORK WITH ONLY 1 ROUTING ITERATION, I.E. NO E-STEP, SO THERE MUST BE AN ISSUE HERE
         # Compute log(P): the log probability of each in_vote (data point)
         a = 0.5*safe_log(2*math.pi*variance)  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
         b = 0.5*safe_divide(tf.square(tf.subtract(in_vote, mean, name='b_sub')), variance)  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
 
         log_p = tf.subtract(-a, b, name='log_p_sub')  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
-        #log_p = log_p - (tf.reduce_max(log_p, axis=[-2, -1], keep_dims=True) - tf.log(10.))  # TODO - this line apparently helps with stability in the implementation credited in the readme, still getting NaN with it though?
 
         log_p_sum = tf.reduce_sum(log_p, axis=[-2, -1], keep_dims=True)  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
 
         # Compute updated r (assignment probability/responsibility)
         # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
-        log_p_activation = safe_log(activation) + log_p_sum  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
+        log_p_activation = safe_log(activation) + log_p_sum
 
-        log_p_activation_sum = tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True)  # [batch_size, kernel_rows, kernel_cols, in_capsules, 1, 1, 1, 1, 1]  TODO - want to do this sum only over out_rows and out_cols for which the element specified by kernel_row, kernel column is within the receptive field
+        log_p_activation_sum = tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True)
 
-        # [batch_size, ]
-        r = tf.exp(log_p_activation - log_p_activation_sum)  # TODO - Check bottom of page 5 of paper. Should we be considering receptive fields here? Could not considering receptive fields here lead to diffusion of small values at edges of variance? should we be summing over input capsules or output capsules
-
+        # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
+        r = tf.exp(log_p_activation - log_p_activation_sum)
         return r
 
 
-def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp=0.1, final_inverse_temp=0.9):
+def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp=0.1, final_inverse_temp=0.9,
+               strides=(1, 1, 1, 1), rates=(1, 1, 1, 1), padding='SAME', conv=False):
     """
     Creates the TensorFlow graph for the EM routing between capsules. Takes in and outputs 2D grids of capsules so that 
     it will work between convolutional layers, but it may be used for routing between non convolutional layers by using
@@ -369,6 +554,10 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp
     :param n_routing_iterations: Int number of iterations to run the EM algorithm for the routing
     :param init_inverse_temp: Initial value for the inverse temperature parameter used in the M-step
     :param final_inverse_temp: Final value (on last iteration) of the inverse temperature parameter for the M-step
+    :param strides: Strides used to extract patches for in_vote and in_activation
+    :param rates: Rates used to extract patches for in_vote and in_activation
+    :param padding: Padding used to extract patches for in_vote and in_activation
+    :param conv: bool whether this is routing between convolutional capsules or not
     :return: pose: Tensor with shape [batch_size, out_rows, out_cols, out_capsules, pose_size, pose_size]
              activation: Tensor with shape [batch_size, out_rows, out_cols, out_capsules]
     """
@@ -386,8 +575,8 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp
         r = tf.ones([batch_size, *kernel_size, in_capsules, *out_size, out_capsules, 1, 1], name="R")/(np.prod(out_size)*out_capsules)
 
         # Create beta parameters
-        beta_v = tf.Variable(tf.random_normal([1, 1, 1, 1, *out_size, out_capsules, 1, 1]), name="beta_v")  # TODO - should the betas have different values for each output capsule? seems to learn much slower if they do, may end up with higher accuracy though? (not fully tested yet)
-        beta_a = tf.Variable(tf.random_normal([1, 1, 1, 1, *out_size, out_capsules, 1, 1]), name="beta_a")
+        beta_v = tf.Variable(tf.random_normal([1, 1, 1, 1, 1, 1, out_capsules, 1, 1]), name="beta_v")
+        beta_a = tf.Variable(tf.random_normal([1, 1, 1, 1, 1, 1, out_capsules, 1, 1]), name="beta_a")
         tf.summary.histogram('beta_v', beta_v)
         tf.summary.histogram('beta_a', beta_a)
 
@@ -398,11 +587,19 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp
         else:
             inverse_temp_increment = 0  # Cant increment anyway in this case
 
+        # If we are doing routing between convolutional capsules we need to convert patches to full tensors
+        if conv:
+            strides = get_correct_conv_param(strides)
+            rates = get_correct_conv_param(rates)
+            in_vote = patches_to_full(in_vote, strides, rates, padding)
+            in_activation = patches_to_full(in_activation, strides, rates, padding)
+            r = patches_to_full(r, strides, rates, padding)
+
         # TODO - should we be stopping the gradient of the mean and/or activations here? doesnt seem to make much difference for primarycaps -> classcaps network
-        #in_vote_stopped = tf.stop_gradient(in_vote)
-        #in_activation_stopped = tf.stop_gradient(in_activation)
-        in_vote_stopped = in_vote
-        in_activation_stopped = in_activation
+        in_vote_stopped = tf.stop_gradient(in_vote)
+        in_activation_stopped = tf.stop_gradient(in_activation)
+        #in_vote_stopped = in_vote
+        #in_activation_stopped = in_activation
 
         # Do routing iterations
         for routing_iteration in range(n_routing_iterations - 1):
@@ -448,9 +645,9 @@ def primarycaps_layer(input_tensor, out_capsules, pose_size):
         # Affine transform to create capsule pose matrices and activations
         # Create weights and tile them over batch in preparation for matmul op as we need to use the same weights for
         # each element in the batch
-        weights = tf.Variable(tf.random_normal([1, in_rows, in_cols, out_capsules, in_channels, (pose_size ** 2 + 1)]),
+        weights = tf.Variable(tf.random_normal([1, 1, 1, out_capsules, in_channels, (pose_size ** 2 + 1)]),
                               name='weights')
-        weights = tf.tile(weights, [batch_size, 1, 1, 1, 1, 1])
+        weights = tf.tile(weights, [batch_size, in_rows, in_cols, 1, 1, 1])
 
         # Expand input tensor for matmul op and tile input over out_capsules for matmul op as we need to multiply the
         # input by separate weights for each output capsule
@@ -472,8 +669,8 @@ def primarycaps_layer(input_tensor, out_capsules, pose_size):
         return pose, activation
 
 
-def convcaps_layer(in_pose, in_activation, out_capsules, kernel_size, strides=1, padding='SAME', n_routing_iterations=3,
-                   init_inverse_temp=0.1, final_inverse_temp=0.9):
+def convcaps_layer(in_pose, in_activation, out_capsules, kernel_size, strides=1, rates=(1, 1, 1, 1), padding='SAME',
+                   n_routing_iterations=3, init_inverse_temp=0.1, final_inverse_temp=0.9):
     """
     Creates the TensorFlow graph for a convolutional capsule layer as specified in 'Matrix Capsules with EM Routing'.
     In this layer we first perform the convolutional affine transform between input poses to get votes for the routing.
@@ -484,6 +681,7 @@ def convcaps_layer(in_pose, in_activation, out_capsules, kernel_size, strides=1,
     :param out_capsules: Int number of output capsules in the layer
     :param kernel_size: Int, Tuple or List specifying the size of the convolution kernel (assuming square kernel if int)
     :param strides: Int, Tuple or List specifying the strides for the convolution (assuming equal over dimensions if int)
+    :param rates:
     :param padding: 'valid' or 'same' specifying padding to use in the same way as tf.nn.conv2d
     :param n_routing_iterations: Number of iterations to use for the EM dynamic routing procedure
     :param init_inverse_temp: Scalar initial value for the inverse temperature parameter used for EM routing
@@ -491,12 +689,15 @@ def convcaps_layer(in_pose, in_activation, out_capsules, kernel_size, strides=1,
     :return: pose: Tensor with shape [batch_size, out_rows, out_cols, out_capsules, pose_size, pose_size]
              activation: Tensor with shape [batch_size, out_rows, out_cols, out_capsules]
     """
+    ksizes, strides, rates = get_correct_ksizes_strides_rates(kernel_size, strides, rates)
     with tf.variable_scope('ConvCaps'):
         # Pose convolutional affine transform
-        in_vote, in_activation = convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size, strides, padding)
+        in_vote, in_activation = convcaps_affine_transform(in_pose, in_activation, out_capsules, ksizes, strides,
+                                                           rates, padding)
 
         # EM Routing
-        pose, activation = em_routing(in_vote, in_activation, n_routing_iterations, init_inverse_temp, final_inverse_temp)
+        pose, activation = em_routing(in_vote, in_activation, n_routing_iterations, init_inverse_temp,
+                                      final_inverse_temp, strides, rates, padding, conv=True)
 
         return pose, activation
 
@@ -520,7 +721,8 @@ def classcaps_layer(in_pose, in_activation, n_classes, n_routing_iterations=3,
         in_vote, in_activation = caps_affine_transform(in_pose, in_activation, n_classes)
 
         # EM Routing
-        pose, activation = em_routing(in_vote, in_activation, n_routing_iterations, init_inverse_temp, final_inverse_temp)
+        pose, activation = em_routing(in_vote, in_activation, n_routing_iterations, init_inverse_temp,
+                                      final_inverse_temp)
 
         pose = tf.squeeze(pose, [1, 2])  # [batch_size, n_classes, pose_size, pose_size]
         activation = tf.squeeze(activation, [1, 2])  # [batch_size, n_classes]
@@ -605,6 +807,7 @@ def build_capsnetem_graph(placeholders, relu_conv1_params, primarycaps_params, c
 
     # Create Class Capsules layer
     classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, **classcaps_params)
+    #classcaps_pose, classcaps_activation = classcaps_layer(primarycaps_pose, primarycaps_activation, **classcaps_params)
 
     # Create spread loss
     loss = spread_loss(classcaps_activation, placeholders['label'], **spread_loss_params)
@@ -618,10 +821,10 @@ def build_capsnetem_graph(placeholders, relu_conv1_params, primarycaps_params, c
         summaries['accuracy'] = tf.summary.scalar('accuracy', accuracy)
     summaries['loss'] = tf.summary.scalar('loss', loss)
 
-    #summaries['general'].append(tf.summary.histogram('primarycaps_activation', primarycaps_activation))
-    #summaries['general'].append(tf.summary.histogram('convcaps1_activation', convcaps1_activation))
-    #summaries['general'].append(tf.summary.histogram('convcaps2_activation', convcaps2_activation))
-    #summaries['general'].append(tf.summary.histogram('classcaps_activation', classcaps_activation))
+    summaries['general'].append(tf.summary.histogram('primarycaps_activation', primarycaps_activation))
+    summaries['general'].append(tf.summary.histogram('convcaps1_activation', convcaps1_activation))
+    summaries['general'].append(tf.summary.histogram('convcaps2_activation', convcaps2_activation))
+    summaries['general'].append(tf.summary.histogram('classcaps_activation', classcaps_activation))
     summaries['general'].append(tf.summary.histogram('correct', correct))
 
     return loss, predictions, accuracy, correct, summaries
