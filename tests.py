@@ -177,6 +177,105 @@ def conv_in_size_test():
     return test_out(in_size == expected_in_size, 'conv_in_size_test')
 
 
+def get_full_indices_test():
+    kernel_rows = 3
+    kernel_cols = 3
+    in_capsules = 32
+    out_rows = 6
+    out_cols = 6
+    out_capsules = 32
+    capsule_dim1 = 4
+    capsule_dim2 = 4
+    strides = [1, 2, 2, 1]
+    rates = [1, 1, 1, 1]
+    in_rows = 12
+    in_cols = 12
+    k_dash = [3, 3]
+    p_rows = 1
+    p_cols = 1
+
+    indices = []
+    # Construct for first batch element, in capsule and out capsule
+    start = time.time()
+    for i_k in range(kernel_rows):
+        for j_k in range(kernel_cols):
+            for c_i in range(in_capsules):
+                for i_o in range(out_rows):
+                    for j_o in range(out_cols):
+                        # Need to take into account strides, rates, padding
+                        # Can't have padding on the outside as we need only indices within the original
+                        # image. Can switch it to the other side of the kernel as the rest of the full
+                        # array should be zeros anyway.
+                        # If padding is on top/left we need to switch it to the bottom/right by adding k_dash to the index
+                        # If padding is on the bottom/right, need to switch it to the top/left by subtracting k_dash from index
+                        row = i_o * strides[1] + i_k * rates[
+                            1] - p_rows
+                        if row < 0:
+                            row = row + k_dash[0]
+                        elif row > in_rows - 1:
+                            row = row - k_dash[0]
+
+                        col = j_o * strides[2] + j_k * rates[
+                            2] - p_cols
+                        if col < 0:
+                            col = col + k_dash[1]
+                        elif col > in_cols - 1:
+                            col = col - k_dash[1]
+
+                        indices.append(np.array([row, col, c_i, i_o, j_o]))
+    np_indices = np.stack(indices)
+
+    np_indices = np.repeat(np_indices, out_capsules * capsule_dim1 * capsule_dim2, axis=0)
+    capsule_dim2_indices = np.tile(np.arange(capsule_dim2), out_capsules * capsule_dim1)
+    capsule_dim1_indices = np.tile(np.repeat(np.arange(capsule_dim1), capsule_dim2), out_capsules)
+    out_capsules_indices = np.repeat(np.arange(out_capsules), capsule_dim2 * capsule_dim1)
+    extra_indices = np.transpose(np.stack([out_capsules_indices, capsule_dim1_indices, capsule_dim2_indices], axis=0))
+    extra_indices = np.tile(extra_indices, [kernel_rows * kernel_cols * in_capsules * out_rows * out_cols, 1])
+    np_indices = np.concatenate([np_indices, extra_indices], axis=1)
+    print("Reconstruction indices np time: {}s".format(time.time() - start))
+
+    indices = []
+    # Construct for first batch element, in capsule and out capsule
+    # TODO - can do this more efficiently by doing loops separately and combining (currently adds ~35s to the graph construction time)
+    start = time.time()  # TODO - for debugging; remove
+    for i_k in range(kernel_rows):
+        for j_k in range(kernel_cols):
+            for c_i in range(in_capsules):
+                for i_o in range(out_rows):
+                    for j_o in range(out_cols):
+                        for c_o in range(out_capsules):
+                            for c_d1 in range(capsule_dim1):
+                                for c_d2 in range(capsule_dim2):
+                                    # Need to take into account strides, rates, padding
+                                    # Can't have padding on the outside as we need only indices within the original
+                                    # image. Can switch it to the other side of the kernel as the rest of the full
+                                    # array should be zeros anyway.
+                                    # If padding is on top/left we need to switch it to the bottom/right by adding k_dash to the index
+                                    # If padding is on the bottom/right, need to switch it to the top/left by subtracting k_dash from index
+                                    row = i_o * strides[1] + i_k * rates[
+                                        1] - p_rows  # TODO - something related to strides here is causing incorrect kernel reconstruction when strides>1
+                                    if row < 0:
+                                        row = row + k_dash[0]
+                                    elif row > in_rows - 1:
+                                        row = row - k_dash[0]
+
+                                    col = j_o * strides[2] + j_k * rates[
+                                        2] - p_cols  # TODO - something related to strides here is causing incorrect kernel reconstruction when strides>1
+                                    if col < 0:
+                                        col = col + k_dash[1]
+                                    elif col > in_cols - 1:
+                                        col = col - k_dash[1]
+
+                                    indices.append(np.array([row, col, c_i, i_o, j_o, c_o, c_d1, c_d2]))
+    np_loop_indices = np.stack(indices)
+    print("Reconstruction indices loop time: {}s".format(time.time() - start))  # TODO - for debugging; remove
+
+    condition = np.all(np.equal(np_indices, np_loop_indices))
+    return test_out(condition, 'get_full_indices_test')
+
+
+
+
 if __name__ == '__main__':
     #get_conv_slices_test()
     #extract_image_patches_nd_test()
@@ -184,4 +283,5 @@ if __name__ == '__main__':
     #get_reverse_conv_2d_mask_test()
     #sparse_where_test()
     #conv_in_size_test()
-    conv_out_size_test()
+    #conv_out_size_test()
+    get_full_indices_test()
