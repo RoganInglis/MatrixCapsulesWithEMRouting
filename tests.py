@@ -274,6 +274,23 @@ def get_full_indices_test():
     return test_out(condition, 'get_full_indices_test')
 
 
+def repeat_test():
+    a_np = np.random.uniform(size=[3, 6, 5, 7])
+    a = tf.constant(a_np)
+    b1 = utils.repeat(a, 3, axis=0)
+    b2 = utils.repeat(a, 5, axis=1)
+    b3 = utils.repeat(a, 7, axis=3)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        b1_np, b2_np, b3_np = sess.run([b1, b2, b3])
+
+    b1_np_repeat = np.repeat(a_np, 3, axis=0)
+    b2_np_repeat = np.repeat(a_np, 5, axis=1)
+    b3_np_repeat = np.repeat(a_np, 7, axis=3)
+
+    condition = (np.all(np.equal(b1_np, b1_np_repeat))) and (np.all(np.equal(b2_np, b2_np_repeat))) and (np.all(np.equal(b3_np, b3_np_repeat)))
+    return test_out(condition, 'repeat_test')
 
 
 if __name__ == '__main__':
@@ -284,4 +301,5 @@ if __name__ == '__main__':
     #sparse_where_test()
     #conv_in_size_test()
     #conv_out_size_test()
-    get_full_indices_test()
+    #get_full_indices_test()
+    repeat_test()

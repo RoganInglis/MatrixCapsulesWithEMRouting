@@ -144,7 +144,7 @@ class BaseModel(object):
         # but making separate than the __init__ function allows it to be overidden cleanly
         # this is an example of such a function
         checkpoint = tf.train.get_checkpoint_state(self.result_dir)
-        tf.train.write_graph(self.graph, self.result_dir, self.model_name + ".pbtxt")
+        #tf.train.write_graph(self.graph, self.result_dir, self.model_name + ".pbtxt")  # TODO - uncomment when memory issues are sorted (caused by sparse tensor indices most likely)
         if checkpoint is None:
             self.sess.run(self.init_op)
         else:
