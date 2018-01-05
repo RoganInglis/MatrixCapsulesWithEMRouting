@@ -216,19 +216,6 @@ def sparse_reduce_sum_nd(sparse_tensor, axis=None, keep_dims=False, name=None):
         return full_tensor
 
 
-def gather_nd_nd(params, indices, name=None):
-    """
-    Version of gather_nd that gets around the 5D limitation by reshaping before and after performing standard gather_nd.
-    Need to double check this works for gathering
-    :param params:
-    :param indices:
-    :param name:
-    :return:
-    """
-    tf.gather_nd()
-    return out_tensor
-
-
 def reduce_sumsparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='SAME', in_size=None,
                      axis=None, keep_dims=False, name=None):
     """
@@ -278,12 +265,10 @@ def reduce_logsumexpsparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='S
     else:
         scope_name = name
     with tf.variable_scope(scope_name):
-        # Get indices for conversion from full to dense
-        # TODO - complete this
-        # Convert to full tensor containing zeros
-        sparse_tensor = patches_to_full(input_tensor, strides, rates, padding, in_size)
+        # Convert to sparse tensor
+        sparse_tensor = patches_to_sparse(input_tensor, strides, rates, padding, in_size)
 
-        # Do sparse reduce logsumexp on resulting full tensor
+        # Do sparse reduce logsumexp on resulting sparse tensor
         full_tensor = sparse_reduce_logsumexp(sparse_tensor, axis=axis, keep_dims=keep_dims)
 
         return full_tensor
@@ -318,7 +303,8 @@ def sparse_reduce_logsumexp(sparse_tensor, axis=None, keep_dims=False, name=None
         exp_values = tf.exp(sparse_full, - my_max)
 
         # Extract only required values from exp_values (according to sparse_tensor.indices)
-        exp_values = gather_nd_nd(exp_values, sparse_tensor.indices)
+        reshape_sparse_tensor = tf.sparse_reshape(sparse_tensor, tf.reduce_prod(sparse_tensor.dense_shape))
+        exp_values = tf.gather_nd(exp_values, reshape_sparse_tensor.indices)
 
         # Convert back to sparse
         exp_sparse = tf.SparseTensor(sparse_tensor.indices, exp_values, sparse_tensor.dense_shape)
@@ -863,10 +849,24 @@ def e_step(mean, variance, activation, in_vote, logspace=True, **sparse_args):
             log_p_activation = safe_log(activation) + log_p
 
             if sparse_args['sparse']:
-                log_p_activation_sum = tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True)
+                log_p_activation_sum = reduce_logsumexpsparse(log_p_activation, sparse_args['strides'],
+                                                              sparse_args['rates'], sparse_args['padding'],
+                                                              sparse_args['in_size'], axis=[4, 5, 6], keep_dims=True)
 
-                # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
+                # Get patch size and dense shape for conversion back to dense patches later
+                dense_shape = get_shape_list(log_p_activation)
+
+                # Convert log_p_activation to full for compatibility with log_p_activation_sum
+                log_p_activation = patches_to_full(log_p_activation, sparse_args['strides'], sparse_args['rates'],
+                                                   sparse_args['padding'], sparse_args['in_size'])
+
+                # Compute new r
                 r = tf.exp(log_p_activation - log_p_activation_sum)
+
+                # Convert r back to patches (since activation_p is patches this is valid)
+                indices = get_dense_indices(dense_shape, sparse_args['in_size'], sparse_args['strides'],
+                                            sparse_args['rates'], sparse_args['padding'])  # TODO - might be more efficient to  pass the indices out from reduce_sumsparse as they are already in there
+                r = full_to_patches(r, indices, dense_shape)
             else:
                 log_p_activation_sum = tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True)
 
