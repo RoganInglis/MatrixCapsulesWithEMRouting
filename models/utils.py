@@ -216,6 +216,19 @@ def sparse_reduce_sum_nd(sparse_tensor, axis=None, keep_dims=False, name=None):
         return full_tensor
 
 
+def gather_nd_nd(params, indices, name=None):
+    """
+    Version of gather_nd that gets around the 5D limitation by reshaping before and after performing standard gather_nd.
+    Need to double check this works for gathering
+    :param params:
+    :param indices:
+    :param name:
+    :return:
+    """
+    tf.gather_nd()
+    return out_tensor
+
+
 def reduce_sumsparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='SAME', in_size=None,
                      axis=None, keep_dims=False, name=None):
     """
@@ -278,7 +291,9 @@ def reduce_logsumexpsparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='S
 
 def sparse_reduce_logsumexp(sparse_tensor, axis=None, keep_dims=False, name=None):
     """
-    Sparse version of tf.reduce_logsumexp that take a SparseTensor as input and returns a dense tensor
+    Sparse version of tf.reduce_logsumexp that take a SparseTensor as input and returns a dense tensor. The design of
+    this function takes advantage some properties that may be specific to this situation so care should be taken using
+    this in other projects.
     :param sparse_tensor:
     :param axis:
     :param keep_dims:
@@ -290,25 +305,29 @@ def sparse_reduce_logsumexp(sparse_tensor, axis=None, keep_dims=False, name=None
     else:
         scope_name = name
     with tf.variable_scope(scope_name):
-        raw_max = tf.sparse_reduce_max_sparse(sparse_tensor, axis=axis, keep_dims=keep_dims)  # TODO - double check gradient is defined for this
+        raw_max = tf.sparse_reduce_max(sparse_tensor, axis=axis, keep_dims=keep_dims)
 
-        conditional_values = tf.where(tf.is_finite(raw_max.values), raw_max.values, tf.zeros_like(raw_max.values))
-        conditional = tf.SparseTensor(raw_max.indices, conditional_values, raw_max.dense_shape)
+        conditional = tf.where(tf.is_finite(raw_max), raw_max, tf.zeros_like(raw_max))
         my_max = tf.stop_gradient(conditional)
 
         # Exp
-        exp_values = tf.exp(sparse_tensor.values, - my_max.values)
+        # Convert sparse_tensor to full so that we can subtract my_max
+        sparse_full = tf.sparse_tensor_to_dense(sparse_tensor, validate_indices=False)
+
+        # Subtract my_max
+        exp_values = tf.exp(sparse_full, - my_max)
+
+        # Extract only required values from exp_values (according to sparse_tensor.indices)
+        exp_values = gather_nd_nd(exp_values, sparse_tensor.indices)
+
+        # Convert back to sparse
         exp_sparse = tf.SparseTensor(sparse_tensor.indices, exp_values, sparse_tensor.dense_shape)
 
         # Sum
-        sum_sparse = sparse_reduce_sum_sparse_nd(exp_sparse, axis=axis, keep_dims=True)  # TODO -
+        sum_sparse = sparse_reduce_sum_nd(exp_sparse, axis=axis, keep_dims=True)
 
         # Log
-        log_values = tf.log(sum_sparse.values) + my_max.values
-        sparse_result = tf.SparseTensor(sum_sparse.indices, log_values, sum_sparse.dense_shape)
-
-        # Full result
-        full_tensor = tf.sparse_tensor_to_dense(sparse_result, validate_indices=False)
+        full_tensor = tf.log(sum_sparse) + my_max
 
         return full_tensor
 
