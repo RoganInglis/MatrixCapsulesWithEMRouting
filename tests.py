@@ -293,6 +293,112 @@ def repeat_test():
     return test_out(condition, 'repeat_test')
 
 
+def tf_zero_div_test():
+    a = tf.zeros([1, 2])
+    b = tf.zeros_like(a)
+
+    div = tf.divide(a, b)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        div_out = sess.run(div)
+    print(div_out)
+
+
+def gather_nd_test():
+    a = tf.random_normal([2, 3, 3, 2])
+    indices = tf.constant([[0, 0, 0, 0],
+                           [1, 2, 2, 1]])
+
+    b = tf.gather_nd(a, indices)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        a_np, b_np = sess.run([a, b])
+
+        print(a_np)
+        print(b_np)
+
+
+def sparse_values_op_test():
+    indices = tf.constant([[1, 1], [0, 0]], dtype=tf.int64)
+    values = tf.constant([1., 2.])
+    dense_shape = tf.constant([2, 2], dtype=tf.int64)
+    sparse_tensor = tf.SparseTensor(indices, values, dense_shape)
+
+    log_sparse_tensor = tf.SparseTensor(sparse_tensor.indices, tf.log(sparse_tensor.values), sparse_tensor.dense_shape)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        log_sparse_tensor_np = sess.run(log_sparse_tensor)
+
+        print(log_sparse_tensor_np)
+
+
+def indices_reshape_test():
+    indices = tf.constant([[1, 1], [0, 0]], dtype=tf.int64)
+    values = tf.constant([1., 2.])
+    dense_shape = tf.constant([2, 2], dtype=tf.int64)
+    sparse_tensor = tf.SparseTensor(indices, values, dense_shape)
+
+    reshape_tensor = tf.sparse_reshape(sparse_tensor, [4])
+    reshape_indices = tf.reshape(indices, [4])
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        reshape_tensor_indices_np, reshape_indices_np = sess.run([reshape_tensor.indices, reshape_indices])
+
+    print(reshape_tensor_indices_np)
+    print(reshape_indices_np)
+
+
+def sparse_get_dims_test():
+    indices = tf.constant([[1, 1], [0, 0]], dtype=tf.int64)
+    values = tf.constant([1., 2.])
+    dense_shape = tf.constant([2, 2], dtype=tf.int64)
+    sparse_tensor = tf.SparseTensor(indices, values, dense_shape)
+    print(sparse_tensor.get_shape().ndims)
+    print(sparse_tensor.dense_shape)
+    print('test')
+
+
+def permute_gather_test():
+    a = tf.constant([7, 8, 9, 10, 11, 12])
+    b = [5, 4, 1, 2, 3, 0]
+
+    c = tf.gather(a, b)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        c_np = sess.run(c)
+
+        print(c_np)
+
+
+def sparse_reduce_sum_nd_test():
+    indices = tf.constant([[0, 0, 0],
+                           [0, 1, 0],
+                           [1, 1, 1]], dtype=tf.int64)
+    values = tf.constant([1., 2., 3.])
+    dense_shape = tf.constant([2, 2, 2], dtype=tf.int64)
+    sparse_tensor = tf.SparseTensor(indices, values, dense_shape)
+
+    reduce_sum_tensor = utils.sparse_reduce_sum_nd(sparse_tensor, axis=[1], keep_dims=True)
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        reduce_sum_tensor_np = sess.run(reduce_sum_tensor)
+
+    np_tensor = np.zeros([2, 2, 2])
+    np_tensor[0, 0, 0] = 1.
+    np_tensor[0, 1, 0] = 2.
+    np_tensor[1, 1, 1] = 3.
+    np_sum_tensor = np.sum(np_tensor, axis=1, keepdims=True)
+
+    condition = np.all(np.equal(reduce_sum_tensor_np, np_sum_tensor))
+    test_out(condition, 'sparse_reduce_sum_nd_test')
+
+
 if __name__ == '__main__':
     #get_conv_slices_test()
     #extract_image_patches_nd_test()
@@ -302,4 +408,11 @@ if __name__ == '__main__':
     #conv_in_size_test()
     #conv_out_size_test()
     #get_full_indices_test()
-    repeat_test()
+    #repeat_test()
+    #tf_zero_div_test()
+    #gather_nd_test()
+    #sparse_values_op_test()
+    #indices_reshape_test()
+    #sparse_get_dims_test()
+    #permute_gather_test()
+    sparse_reduce_sum_nd_test()

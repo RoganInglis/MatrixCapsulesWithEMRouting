@@ -61,6 +61,7 @@ class CapsNetEMModel(BaseModel):
             # Define main model graph
             self.margin = tf.train.polynomial_decay(self.initial_margin, self.global_step, self.margin_decay_steps,
                                                     self.final_margin)
+            tf.summary.scalar(self.margin)
 
             self.spread_loss_params = {'margin': self.margin}
 
