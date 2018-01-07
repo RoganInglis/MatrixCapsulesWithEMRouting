@@ -48,37 +48,37 @@ Working on this
 
 ## Notes
 
-####Matrix Capsules with EM Routing paper
+**Matrix Capsules with EM Routing paper**
 
 Looking at other implementations of this paper I have seen some confusion over certain points.
 
-#####Beta_a and Beta_v parameters
+**_Beta_a and Beta_v parameters_**
 
 As per the explanation in the [OpenReview comments](https://openreview.net/forum?id=HJWLfGWRb) these are per higher 
 level capsule type and are therefore vectors. The initial value of these seems to have a reasonable impact on the speed
 of the early stage of training, although an initial value is not mentioned in the paper.
 
-#####Inverse temperature parameters
+**_Inverse temperature parameters_**
 
 The initial inverse temperature parameters and schedule appear to have a significant effect on the training of the model 
 however these values are also not mentioned in the paper.
 
-#####Padding
+**_Padding_**
 
 The paper seems to imply 'SAME' padding for convolutional layers given that the bottom of section 4 suggests that corner
 capsules will only receive "one feedback per capsule type", although this is not explicitly mentioned.
 
-#####Sum over capsules in the E-step
+**_Sum over capsules in the E-step_**
 
 This has been slightly clarified in the new (05/01/18) version of the paper but I think it is still not explicit.
 My interpretation is that this is the sum over output capsules for which the input capsule is within the receptive
 field. For a 1D image with one 1D capsule and a patch size of 2 this would look like:
 
-######Input image (indexed by i in paper)
+*Input image (indexed by i in paper)*
 
 [[1, 2, 3, 4]]
 
-######Patches as returned by extract_image_patches_nd (indexed by j in paper)
+*Patches as returned by extract_image_patches_nd (indexed by j in paper)*
 
 [[1, 2],
 
@@ -86,7 +86,7 @@ field. For a 1D image with one 1D capsule and a patch size of 2 this would look 
  
  [3, 4]] 
 
-######Patches in correct position
+*Patches in correct position*
 
 [[1, 2, x, x],
 
@@ -94,13 +94,13 @@ field. For a 1D image with one 1D capsule and a patch size of 2 this would look 
  
  [x, x, 3, 4]]
  
-######Correct sum
+*Correct sum*
 
 [[1, 4, 6, 4]]
 
 This implementation computes this by first converting to a sparse tensor before computing the sum.
 
-######Incorrect sum
+*Incorrect sum*
 
 From a brief look at some other implementations it looks like some are computing the sum over the patches as in the 
 second step, without taking into account receptive fields, and would therefore get:
@@ -108,7 +108,7 @@ second step, without taking into account receptive fields, and would therefore g
 [[6, 9]]
 
 
-####TensorFlow limitations
+**TensorFlow limitations**
 
 This implementation required a fair number of workarounds for limitations in TensorFlow e.g. tf.sparse_reduce_sum and 
 tf.gather_nd do not support tensors > 5D, however for convolutional capsules it is convenient to deal with 9D tensors
