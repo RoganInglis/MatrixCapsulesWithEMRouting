@@ -9,9 +9,10 @@ import time
 
 # TODO - make sure all functions have been fully tested
 # TODO - sort out interchangeable use of 'size' and 'shape'; change to 'shape'
+# TODO - make sure use of dense_shape, full_shape and patches_shape is consistent
 # Define eps - small constant for safe division/log
-div_eps = 1e-8
-log_eps = 1e-8
+div_eps = 1e-6
+log_eps = 1e-6
 
 
 def safe_divide(x, y, name=None):
@@ -155,11 +156,12 @@ def repeat(input_tensor, repeats, axis=0, name=None):
         return repeat_tensor
 
 
-def sparse_reduce_sum_nd(sparse_tensor, axis=None, keep_dims=False, name=None):
+def sparse_reduce_sum_nd(sparse_tensor, dense_shape, axis=None, keep_dims=False, name=None):
     """
     Version of sparse_reduce_sum that works with tensors >5D. This assumes that dim 0 is batch size and axis is 3
     (or 4?)D max.
     :param sparse_tensor:
+    :param dense_shape
     :param axis:
     :param keep_dims:
     :param name:
@@ -176,23 +178,21 @@ def sparse_reduce_sum_nd(sparse_tensor, axis=None, keep_dims=False, name=None):
         # Need to sparse reshape to get around 5D limitation of sparse reduce sum
         # Transpose so that axis is/are first + (leaving batch as zeroth) dims of tensor
         perm = list(range(sparse_tensor.get_shape().ndims))
-        full_shape = sparse_tensor.dense_shape
+        dense_perm_shape = dense_shape
         new_axis = axis
         for i, ax in enumerate(axis):
             # i + 1 index here as we want to leave batch as dim 0
             perm[i + 1], perm[ax] = perm[ax], perm[i + 1]
+            dense_perm_shape[i + 1], dense_perm_shape[ax] = dense_perm_shape[ax], dense_perm_shape[i + 1]
             new_axis[i] = i + 1
 
         # Transpose sparse tensor so that non batch or axis dims are last
         sparse_tensor = tf.sparse_transpose(sparse_tensor, perm)
 
-        full_perm_shape = tf.gather(full_shape, perm)
-        full_perm_shape_axis = tf.gather(full_shape, perm[:len(axis) + 1])
         if len(axis) + 1 < len(perm):
-            full_perm_shape_condensed = tf.cast(tf.reduce_prod(tf.gather(full_shape, perm[len(axis) + 1:]), keep_dims=True), tf.int64)
-            condensed_shape = tf.concat([full_perm_shape_axis, full_perm_shape_condensed], axis=0)
+            condensed_shape = [*dense_perm_shape[:len(axis) + 1], np.prod(dense_perm_shape[len(axis) + 1:])]
         else:
-            condensed_shape = full_perm_shape_axis
+            condensed_shape = dense_perm_shape
 
         # Reshape to combine other dims
         sparse_tensor = tf.sparse_reshape(sparse_tensor, condensed_shape)
@@ -201,8 +201,9 @@ def sparse_reduce_sum_nd(sparse_tensor, axis=None, keep_dims=False, name=None):
         full_tensor = tf.sparse_reduce_sum(sparse_tensor, axis=new_axis, keep_dims=True)
 
         # Reshape to regain condensed dimensions
-        new_shape = tf.scatter_update(tf.Variable(full_perm_shape), tf.constant(new_axis, dtype=tf.int32),
-                                      tf.ones([len(new_axis)], dtype=full_perm_shape.dtype))
+        new_shape = dense_perm_shape
+        for ax in new_axis:
+            new_shape[ax] = 1
 
         full_tensor = tf.reshape(full_tensor, new_shape)
 
@@ -238,9 +239,10 @@ def reduce_sumsparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='SAME', 
     with tf.variable_scope(scope_name):
         # Convert input tensor to sparse
         sparse_tensor = patches_to_sparse(input_tensor, strides, rates, padding, in_size)
+        dense_shape = get_patches_full_shape(input_tensor, strides, rates, padding, in_size)
 
         # Do sparse reduce sum
-        full_tensor = sparse_reduce_sum_nd(sparse_tensor, axis=axis, keep_dims=keep_dims)
+        full_tensor = sparse_reduce_sum_nd(sparse_tensor, dense_shape, axis=axis, keep_dims=keep_dims)
 
         return full_tensor
 
@@ -267,19 +269,21 @@ def reduce_logsumexpsparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='S
     with tf.variable_scope(scope_name):
         # Convert to sparse tensor
         sparse_tensor = patches_to_sparse(input_tensor, strides, rates, padding, in_size)
+        dense_shape = get_patches_full_shape(input_tensor, strides, rates, padding, in_size)
 
         # Do sparse reduce logsumexp on resulting sparse tensor
-        full_tensor = sparse_reduce_logsumexp(sparse_tensor, axis=axis, keep_dims=keep_dims)
+        full_tensor = sparse_reduce_logsumexp(sparse_tensor, dense_shape, axis=axis, keep_dims=keep_dims)
 
         return full_tensor
 
 
-def sparse_reduce_logsumexp(sparse_tensor, axis=None, keep_dims=False, name=None):
+def sparse_reduce_logsumexp(sparse_tensor, dense_shape, axis=None, keep_dims=False, name=None):
     """
     Sparse version of tf.reduce_logsumexp that take a SparseTensor as input and returns a dense tensor. The design of
     this function takes advantage some properties that may be specific to this situation so care should be taken using
     this in other projects.
     :param sparse_tensor:
+    :param dense_shape:
     :param axis:
     :param keep_dims:
     :param name:
@@ -292,6 +296,12 @@ def sparse_reduce_logsumexp(sparse_tensor, axis=None, keep_dims=False, name=None
     with tf.variable_scope(scope_name):
         raw_max = tf.sparse_reduce_max(sparse_tensor, axis=axis, keep_dims=keep_dims)
 
+        # Reshape to regain shape info for raw_max
+        reduced_shape = dense_shape.copy()
+        for ax in axis:
+            reduced_shape[ax] = 1
+        raw_max = tf.reshape(raw_max, reduced_shape)
+
         conditional = tf.where(tf.is_finite(raw_max), raw_max, tf.zeros_like(raw_max))
         my_max = tf.stop_gradient(conditional)
 
@@ -299,18 +309,23 @@ def sparse_reduce_logsumexp(sparse_tensor, axis=None, keep_dims=False, name=None
         # Convert sparse_tensor to full so that we can subtract my_max
         sparse_full = tf.sparse_tensor_to_dense(sparse_tensor, validate_indices=False)
 
+        # Rehape sparse_full to regain shape info
+        sparse_full = tf.reshape(sparse_full, dense_shape)
+
         # Subtract my_max
-        exp_values = tf.exp(sparse_full, - my_max)
+        exp_values = tf.exp(sparse_full - my_max)
 
         # Extract only required values from exp_values (according to sparse_tensor.indices)
-        reshape_sparse_tensor = tf.sparse_reshape(sparse_tensor, tf.reduce_prod(sparse_tensor.dense_shape))
+        new_dense_shape = tf.reduce_prod(sparse_tensor.dense_shape, keep_dims=True)
+        reshape_sparse_tensor = tf.sparse_reshape(sparse_tensor, new_dense_shape)
+        exp_values = tf.reshape(exp_values, [-1])  # TODO - make sure this is correct
         exp_values = tf.gather_nd(exp_values, reshape_sparse_tensor.indices)
 
         # Convert back to sparse
         exp_sparse = tf.SparseTensor(sparse_tensor.indices, exp_values, sparse_tensor.dense_shape)
 
         # Sum
-        sum_sparse = sparse_reduce_sum_nd(exp_sparse, axis=axis, keep_dims=True)
+        sum_sparse = sparse_reduce_sum_nd(exp_sparse, dense_shape, axis=axis, keep_dims=True)
 
         # Log
         full_tensor = tf.log(sum_sparse) + my_max
@@ -634,7 +649,6 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
     :return: vote: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
              activation: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
     """
-    # TODO - this implementation is quite memory inefficient due to tiling, extracting image patches and converting to sparse then full, should look into using depthwise separable convolution (although this may make things tricky in the e-step sum), otherwise there should really be a new tensorflow op implemented for this
     # Sort out different possible kernel_size and strides formats
     ksizes, strides, rates = get_correct_ksizes_strides_rates(kernel_size, strides, rates)
     with tf.variable_scope('convcaps_affine_transform'):
@@ -651,7 +665,7 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
 
         # Create convolutional matmul kernel and tile over batch and out_size (as we need the same kernel to be
         # multiplied by each patch of conv_pose for each element in the batch)
-        kernel = tf.Variable(tf.truncated_normal([1, *ksizes[1:3], in_capsules, 1, 1, out_capsules, pose_size, pose_size]), name='kernel')
+        kernel = tf.Variable(tf.truncated_normal([1, *ksizes[1:3], in_capsules, 1, 1, out_capsules, pose_size, pose_size], stddev=1), name='kernel')
         tf.summary.histogram('kernel', kernel)
         kernel = tf.tile(kernel, [batch_size, 1, 1, 1, *out_size, 1, 1, 1])
 
@@ -919,7 +933,6 @@ def e_step(mean, variance, activation, in_vote, logspace=True, **sparse_args):
         tf.summary.histogram('a', a)
         tf.summary.histogram('b', b)
         tf.summary.histogram('r', r)
-
         return r
 
 
@@ -1006,7 +1019,6 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp
                            'rates': rates,
                            'padding': padding,
                            'in_size': in_size}
-            #r = patches_to_full(r, strides, rates, padding, in_size=in_activation.get_shape().as_list()[1:3])
         else:
             sparse_args = {'sparse': False}
 
@@ -1014,6 +1026,8 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp
         tf.summary.image('in_activation_00', tf.reshape(tf.reshape(in_activation[0],
                                                                    shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 0, 0],
                                                         shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
+        tf.summary.histogram('in_vote', in_vote)
+        tf.summary.histogram('in_activation', in_activation)
         if conv:
             tf.summary.image('in_activation_01', tf.reshape(tf.reshape(in_activation[0],
                                                                        shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 0, 1],
@@ -1030,13 +1044,6 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_inverse_temp
             tf.summary.image('in_activation_22', tf.reshape(tf.reshape(in_activation[0],
                                                                        shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 2, 2],
                                                             shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
-
-
-        # TODO - should we definitely be stopping the gradient of the beta_v, beta_a, vote and/or activations here?
-        in_vote_stopped = tf.stop_gradient(in_vote)
-        in_activation_stopped = tf.stop_gradient(in_activation)
-        beta_v_stopped = tf.stop_gradient(beta_v)
-        beta_a_stopped = tf.stop_gradient(beta_a)
 
         # Do routing iterations
         for routing_iteration in range(n_routing_iterations - 1):
@@ -1081,7 +1088,7 @@ def primarycaps_layer(input_tensor, out_capsules, pose_size):
         # Affine transform to create capsule pose matrices and activations
         # Create weights and tile them over batch in preparation for matmul op as we need to use the same weights for
         # each element in the batch
-        weights = tf.Variable(tf.truncated_normal([1, 1, 1, out_capsules, in_channels, (pose_size ** 2 + 1)]), name='weights')
+        weights = tf.Variable(tf.truncated_normal([1, 1, 1, out_capsules, in_channels, (pose_size ** 2 + 1)], stddev=0.5), name='weights')
         weights = tf.tile(weights, [batch_size, in_rows, in_cols, 1, 1, 1])
 
         # Expand input tensor for matmul op and tile input over out_capsules for matmul op as we need to multiply the
@@ -1233,7 +1240,8 @@ def build_capsnetem_graph(placeholders, relu_conv1_params, primarycaps_params, c
     # Create ReLU Conv1 de-rendering layer
     with tf.variable_scope('relu_conv1'):
         relu_conv1_out = tf.layers.conv2d(images, **relu_conv1_params,
-                                          activation=tf.nn.relu)  # [batch_size, 12?, 12?, relu_conv1_filters]
+                                          activation=tf.nn.relu,
+                                          kernel_initializer=tf.truncated_normal_initializer(stddev=0.5))  # [batch_size, 12?, 12?, relu_conv1_filters]
 
     # Create PrimaryCaps layer
     primarycaps_pose, primarycaps_activation = primarycaps_layer(relu_conv1_out, **primarycaps_params)
@@ -1249,14 +1257,14 @@ def build_capsnetem_graph(placeholders, relu_conv1_params, primarycaps_params, c
 
     # Create ConvCaps2 layer
     #convcaps2_pose, convcaps2_activation = convcaps_layer(convcaps1_pose, convcaps1_activation, **convcaps2_params)
-    #convcaps2_pose, convcaps2_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **convcaps2_params)
-    #tf.summary.image('convcaps2_activation_image_cap_0', tf.expand_dims(convcaps2_activation[:, :, :, 0], 3), max_outputs=1)
-    #tf.summary.image('convcaps2_activation_image_cap_0', tf.expand_dims(convcaps2_activation[:, :, :, 1], 3), max_outputs=1)
-    #tf.summary.image('convcaps2_activation_image_cap_0', tf.expand_dims(convcaps2_activation[:, :, :, 2], 3), max_outputs=1)
+    convcaps2_pose, convcaps2_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **convcaps2_params)
+    tf.summary.image('convcaps2_activation_image_cap_0', tf.expand_dims(convcaps2_activation[:, :, :, 0], 3), max_outputs=1)
+    tf.summary.image('convcaps2_activation_image_cap_0', tf.expand_dims(convcaps2_activation[:, :, :, 1], 3), max_outputs=1)
+    tf.summary.image('convcaps2_activation_image_cap_0', tf.expand_dims(convcaps2_activation[:, :, :, 2], 3), max_outputs=1)
 
     # Create Class Capsules layer
-    #classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, **classcaps_params)
-    classcaps_pose, classcaps_activation = classcaps_layer(primarycaps_pose, primarycaps_activation, **classcaps_params)
+    classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, **classcaps_params)
+    #classcaps_pose, classcaps_activation = classcaps_layer(primarycaps_pose, primarycaps_activation, **classcaps_params)
 
     # Create spread loss
     loss = spread_loss(classcaps_activation, placeholders['label'], **spread_loss_params)
@@ -1272,7 +1280,7 @@ def build_capsnetem_graph(placeholders, relu_conv1_params, primarycaps_params, c
 
     summaries['general'].append(tf.summary.histogram('primarycaps_activation', primarycaps_activation))
     #summaries['general'].append(tf.summary.histogram('convcaps1_activation', convcaps1_activation))
-    #summaries['general'].append(tf.summary.histogram('convcaps2_activation', convcaps2_activation))
+    summaries['general'].append(tf.summary.histogram('convcaps2_activation', convcaps2_activation))
     summaries['general'].append(tf.summary.histogram('classcaps_activation', classcaps_activation))
     summaries['general'].append(tf.summary.histogram('correct', correct))
 
