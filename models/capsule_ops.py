@@ -174,14 +174,16 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp, conv=False):
         rp_reduce_sum = tf.reduce_sum(rp, axis=[1, 2, 3], keep_dims=True)
 
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
-        mean = tf_ops.safe_divide(tf.reduce_sum(tf.multiply(rp, in_vote, name='mean_mul'), axis=[1, 2, 3], keep_dims=True),
-                           rp_reduce_sum)
+        mean = tf_ops.safe_divide(tf.reduce_sum(tf.multiply(rp, in_vote, name='mean_mul'), axis=[1, 2, 3],
+                                                keep_dims=True),
+                                  rp_reduce_sum)
 
         # Update variances (same shape as mean)
         diff_vote_mean = tf.subtract(in_vote, mean, name='vote_mean_sub')
-        variance = tf_ops.safe_divide(tf.reduce_sum(tf.multiply(rp, tf.square(diff_vote_mean, name='diff_vote_mean_square'),
-                                                         name='variance_mul'), axis=[1, 2, 3], keep_dims=True),
-                               rp_reduce_sum)
+        variance = tf_ops.safe_divide(tf.reduce_sum(tf.multiply(rp,
+                                                                tf.square(diff_vote_mean, name='diff_vote_mean_square'),
+                                                                name='variance_mul'), axis=[1, 2, 3], keep_dims=True),
+                                      rp_reduce_sum)
 
         # Clip variance to be positive for sqrt (negative values must be errors caused by safe divide)
         variance = tf.where(tf.less(variance, 0.), tf.zeros_like(variance), variance)
@@ -204,7 +206,8 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp, conv=False):
         if not conv:
             tf.summary.image('activation', tf.squeeze(activation, axis=[1, 2, 3, 4, 8]), max_outputs=1)
         else:
-            tf.summary.image('activation', tf.expand_dims(tf.squeeze(activation, axis=[1, 2, 3, 7, 8])[:, :, :, 0], 3), max_outputs=1)
+            tf.summary.image('activation', tf.expand_dims(tf.squeeze(activation, axis=[1, 2, 3, 7, 8])[:, :, :, 0], 3),
+                             max_outputs=1)
 
         return mean, variance, activation
 
@@ -254,7 +257,7 @@ def e_step(mean, variance, activation, in_vote, logspace=True, **sparse_args):
 
                 # Convert r back to patches (since activation_p is patches this is valid)
                 indices = tf_ops.get_dense_indices(dense_shape, sparse_args['in_size'], sparse_args['strides'],
-                                            sparse_args['rates'], sparse_args['padding'])  # TODO - might be more efficient to  pass the indices out from reduce_sumsparse as they are already in there
+                                            sparse_args['rates'], sparse_args['padding'])  # TODO - might be more efficient to  pass the indices out from reduce_sumsparse as they are already in there (although this makes the reduce_sumsparse function less general)
                 r = tf_ops.full_to_patches(r, indices, dense_shape)
             else:
                 log_p_activation_sum = tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True)
@@ -293,7 +296,7 @@ def e_step(mean, variance, activation, in_vote, logspace=True, **sparse_args):
 
                 # Convert r back to patches (since activation_p is patches this is valid)
                 indices = tf_ops.get_dense_indices(dense_shape, sparse_args['in_size'], sparse_args['strides'],
-                                            sparse_args['rates'], sparse_args['padding'])  # TODO - might be more efficient to  pass the indices out from reduce_sumsparse as they are already in there
+                                            sparse_args['rates'], sparse_args['padding'])  # TODO - might be more efficient to pass the indices out from reduce_sumsparse as they are already in there (although this makes the reduce_sumsparse function less general)
                 r = tf_ops.full_to_patches(r, indices, dense_shape)
 
             else:
@@ -362,11 +365,6 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_beta_v=1., i
             inverse_temp_increment = (final_inverse_temp - init_inverse_temp) / (n_routing_iterations - 1)
         else:
             inverse_temp_increment = 0  # Cant increment anyway in this case
-
-        #inverse_temp_tf = tf.abs(tf.Variable(init_inverse_temp))
-        #inverse_temp_increment_tf = tf.abs(tf.Variable(inverse_temp_increment))
-        #tf.summary.scalar('inverse_temp', inverse_temp_tf)
-        #tf.summary.scalar('inverse_temp_increment', inverse_temp_increment_tf)
 
         """
         If we are doing routing between convolutional capsules we need to send the correct parameters to the e-step

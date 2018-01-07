@@ -3,7 +3,6 @@ import copy
 import json
 import tensorflow as tf
 import numpy as np
-from models import utils
 from tensorflow.examples.tutorials.mnist import input_data
 from tensorflow.python import debug as tf_debug
 

@@ -1,5 +1,4 @@
 import math
-import time
 import tensorflow as tf
 import numpy as np
 from models import utils
@@ -33,7 +32,7 @@ def safe_log(x, name=None):
     else:
         scope_name = name
     with tf.variable_scope(scope_name):
-        # Want to clam any values of x less than log_eps to log_eps
+        # Want to clamp any values of x less than log_eps to log_eps
         x_eps = tf.maximum(x, log_eps)
         y = tf.log(x_eps)
         return y
