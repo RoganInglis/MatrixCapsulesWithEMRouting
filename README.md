@@ -102,7 +102,7 @@ This implementation computes this by first converting to a sparse tensor before 
 
 *Incorrect sum*
 
-From a brief look at some other implementations it looks like some are computing the sum over the patches as in the 
+From a brief look at other implementations it looks like some are computing the sum over the patches as in the
 second step, without taking into account receptive fields, and would therefore get:
 
 [[6, 9]]
