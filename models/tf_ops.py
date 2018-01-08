@@ -429,15 +429,19 @@ def expand_dims_nd(input_tensor, axis=None, name=None):
     :param name: Name for the op/ops
     :return:
     """
-    axis = list(axis)
-    if len(axis) == 1:
-        input_tensor = tf.expand_dims(input_tensor, axis=axis[0], name=name)
+    if name is None:
+        scope_name = 'expand_dims_nd'
     else:
-        with tf.variable_scope('expand_dims_nd'):
+        scope_name = name
+    with tf.variable_scope(scope_name):
+        axis = list(axis)
+        if len(axis) == 1:
+            input_tensor = tf.expand_dims(input_tensor, axis=axis[0], name=name)
+        else:
             for dim in axis:
                 input_tensor = tf.expand_dims(input_tensor, axis=dim, name=name)
 
-    return input_tensor
+        return input_tensor
 
 
 def get_shape_list(input_tensor, name=None):

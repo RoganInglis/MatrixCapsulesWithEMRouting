@@ -1,6 +1,6 @@
 # Matrix Capsules with EM Routing
 
-Implementation of [Matrix Capsules with EM Routing](https://openreview.net/pdf?id=HJWLfGWRb) in TensorFlow.
+TensorFlow Implementation of [Matrix Capsules with EM Routing](https://openreview.net/pdf?id=HJWLfGWRb).
 
 ## Requirements
 Created and tested using:
@@ -114,7 +114,7 @@ This implementation required a fair number of workarounds for limitations in Ten
 tf.gather_nd do not support tensors > 5D, however for convolutional capsules it is convenient to deal with 9D tensors
 as this preserves the 2D structure of the capsules between layers. Also this implementation would have been made easier 
 if there was better support for sparse tensors. It would be useful if there was a version of tf.extract_image_patches
-that returned a sparse tensor. It would also be useful if there was a proper sparse version of reduce_sum_exp.
+that returned a sparse tensor. It would also be useful if there was a proper sparse version of reduce_logsumexp.
 Future implementations of capsule networks would definitely benefit from new capsule specific TensorFlow ops. 
 
 ### TODO
