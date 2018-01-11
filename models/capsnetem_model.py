@@ -90,22 +90,13 @@ class CapsNetEMModel(BaseModel):
 
             # Create PrimaryCaps layer
             primarycaps_pose, primarycaps_activation = primarycaps_layer(relu_conv1_out, **self.primarycaps_params)
-            tf.summary.image('primarycaps_activation_image_cap_0', tf.expand_dims(primarycaps_activation[:, :, :, 0], 3), max_outputs=1)
-            tf.summary.image('primarycaps_activation_image_cap_1', tf.expand_dims(primarycaps_activation[:, :, :, 1], 3), max_outputs=1)
-            tf.summary.image('primarycaps_activation_image_cap_2', tf.expand_dims(primarycaps_activation[:, :, :, 2], 3), max_outputs=1)
 
             # Create ConvCaps1 layer
             convcaps1_pose, convcaps1_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps1_params)
-            tf.summary.image('convcaps1_activation_image_cap_0', tf.expand_dims(convcaps1_activation[:, :, :, 0], 3), max_outputs=1)
-            tf.summary.image('convcaps1_activation_image_cap_1', tf.expand_dims(convcaps1_activation[:, :, :, 1], 3), max_outputs=1)
-            tf.summary.image('convcaps1_activation_image_cap_2', tf.expand_dims(convcaps1_activation[:, :, :, 2], 3), max_outputs=1)
 
             # Create ConvCaps2 layer
             convcaps2_pose, convcaps2_activation = convcaps_layer(convcaps1_pose, convcaps1_activation, **self.convcaps2_params)
             #convcaps2_pose, convcaps2_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps2_params)
-            tf.summary.image('convcaps2_activation_image_cap_0', tf.expand_dims(convcaps2_activation[:, :, :, 0], 3), max_outputs=1)
-            tf.summary.image('convcaps2_activation_image_cap_1', tf.expand_dims(convcaps2_activation[:, :, :, 1], 3), max_outputs=1)
-            tf.summary.image('convcaps2_activation_image_cap_2', tf.expand_dims(convcaps2_activation[:, :, :, 2], 3), max_outputs=1)
 
             # Create Class Capsules layer
             classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, **self.classcaps_params)
@@ -127,7 +118,6 @@ class CapsNetEMModel(BaseModel):
             tf.summary.histogram('convcaps1_activation', convcaps1_activation)
             tf.summary.histogram('convcaps2_activation', convcaps2_activation)
             tf.summary.histogram('classcaps_activation', classcaps_activation)
-            tf.summary.histogram('correct', self.correct)
 
             # Define optimiser
             self.optim = tf.train.AdamOptimizer(self.learning_rate)
@@ -140,10 +130,10 @@ class CapsNetEMModel(BaseModel):
 
         return graph
 
-    def infer(self, audio_input):
+    def infer(self, input_image):
         raise Exception('The infer function must be overriden by the agent')
 
-    def test(self, save_incorrect_images=True):
+    def test(self, save_incorrect_images=False):
         accuracy_list = list()
         if save_incorrect_images:
             incorrect_image_list = list()

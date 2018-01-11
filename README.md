@@ -52,7 +52,7 @@ Working on this
 
 **Matrix Capsules with EM Routing paper**
 
-Looking at other implementations of this paper I have seen some confusion over certain points.
+Some points that caused confusion during this implementation:
 
 **_Beta_a and Beta_v parameters_**
 
@@ -137,7 +137,7 @@ Future implementations of capsule networks would definitely benefit from new cap
 
 2. [Matrix Capsules with EM Routing OpenReview comments](https://openreview.net/forum?id=HJWLfGWRb) 
 
-3. [Logsumexp trick used for stability in the E-step of EM-routing](https://github.com/www0wwwjs1/Matrix-Capsules-EM-Tensorflow/issues/10)
+3. [Logsumexp trick used for stability in the E-step of EM routing](https://github.com/www0wwwjs1/Matrix-Capsules-EM-Tensorflow/issues/10)
 
 4. [Project structure](https://blog.metaflow.fr/tensorflow-a-proposal-of-good-practices-for-files-folders-and-models-architecture-f23171501ae3)
 
