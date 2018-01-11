@@ -3,11 +3,13 @@
 TensorFlow Implementation of [Matrix Capsules with EM Routing](https://openreview.net/pdf?id=HJWLfGWRb).
 
 ## Requirements
+
 Created and tested using:
 - Python 3.5
 - TensorFlow 1.4
 
 #### Packages
+
 - tensorflow
 - numpy
 - tqdm (This requirement may be removed by removing the tqdm wrapper around mnist_batch in utils.save_mnist_as_image() and changing trange() to range() in CapsNetEMModel.learn_from_epoch())
@@ -72,7 +74,8 @@ capsules will only receive "one feedback per capsule type", although this is not
 
 This has been slightly clarified in the new (05/01/18) version of the paper but I think it is still not explicit.
 My interpretation is that this is the sum over output capsules for which the input capsule is within the receptive
-field. For a 1D image with one 1D capsule and a patch size of 2 this would look like:
+field. For a 1D image with one 1D capsule and a patch size of 2 this would look like (ignoring element wise operations
+for the purposes of demonstrating only the effect of shape changing operations):
 
 *Input image (indexed by i in paper)*
 
