@@ -61,7 +61,8 @@ of the early stage of training, although an initial value is not mentioned in th
 **_Inverse temperature parameters_**
 
 The initial inverse temperature parameters and schedule appear to have a significant effect on the training of the model 
-however these values are also not mentioned in the paper.
+(as the activation and activation gradient magnitudes both depend on how saturated the sigmoid function in the E-step is, 
+which is controlled by the inverse temperature parameter) however these values are also not mentioned in the paper.
 
 **_Padding_**
 

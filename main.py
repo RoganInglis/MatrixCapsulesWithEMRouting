@@ -31,17 +31,17 @@ flags.DEFINE_boolean('best', False, 'Force to use the best known configuration')
 flags.DEFINE_float('learning_rate', 1e-3, 'The learning rate of SGD')
 flags.DEFINE_float('drop_keep_prob', 1.0, 'The dropout keep probability')
 flags.DEFINE_float('l2', 0.0, 'L2 regularisation strength')
-flags.DEFINE_integer('batch_size', 8, 'Batch size')
+flags.DEFINE_integer('batch_size', 32, 'Batch size')
 flags.DEFINE_integer('image_dim', 784, 'Number of pixels in the input image')  # TODO - should take care of this with dataset class
 flags.DEFINE_integer('n_classes', 10, 'Number of image classes')  # TODO - should take care of this with dataset class
 
 # ReLU Conv1
 flags.DEFINE_integer('relu_conv1_kernel_size', 5, 'Kernel size for the first ReLu conv layer')
-flags.DEFINE_integer('relu_conv1_filters', 32, 'Number of filters for the first ReLu conv layer')
+flags.DEFINE_integer('relu_conv1_filters', 16, 'Number of filters for the first ReLu conv layer')  # TODO - return to 32
 flags.DEFINE_integer('relu_conv1_stride', 2, 'Strides for convolution in the first ReLu conv layer')
 
 # PrimaryCaps
-flags.DEFINE_integer('primarycaps_out_capsules', 32, 'Number of primary capsules')
+flags.DEFINE_integer('primarycaps_out_capsules', 16, 'Number of primary capsules')  # TODO - return to 32
 flags.DEFINE_integer('pose_size', 4, 'Size of the pose matrices')
 
 # ConvCaps1
@@ -50,10 +50,10 @@ flags.DEFINE_integer('convcaps1_kernel_size', 3, 'Kernel size for the first conv
 flags.DEFINE_integer('convcaps1_strides', 1, 'Strides for convolution in the first conv caps layer')  # TODO - change back to 2 when strides > 1 are working correctly
 flags.DEFINE_string('convcaps1_padding', 'VALID', 'SAME or VALID padding for the first conv capsule layer')  # TODO - should be SAME when same padding is working correctly
 flags.DEFINE_integer('convcaps1_n_routing_iterations', 3, 'Number of routing iterations for the first conv caps layer')
-flags.DEFINE_float('convcaps1_init_beta_v', 0.5, 'Initial beta_v value for the first conv caps layer')
-flags.DEFINE_float('convcaps1_init_beta_a', -0.5, 'Initial beta_a value for the first conv caps layer')
-flags.DEFINE_float('convcaps1_init_inverse_temp', 0.02, 'Initial inverse temperature value for the first conv caps layer')
-flags.DEFINE_float('convcaps1_final_inverse_temp', 0.06, 'Final inverse temperature value for the first conv caps layer')
+flags.DEFINE_float('convcaps1_init_beta_v', 0., 'Initial beta_v value for the first conv caps layer')
+flags.DEFINE_float('convcaps1_init_beta_a', 0., 'Initial beta_a value for the first conv caps layer')
+flags.DEFINE_float('convcaps1_init_inverse_temp', 0.03, 'Initial inverse temperature value for the first conv caps layer')
+flags.DEFINE_float('convcaps1_final_inverse_temp', 0.1, 'Final inverse temperature value for the first conv caps layer')
 
 # ConvCaps2
 flags.DEFINE_integer('convcaps2_out_capsules', 16, 'Number of capsules for the second conv capsule layer')  # TODO - return to 32
@@ -61,22 +61,22 @@ flags.DEFINE_integer('convcaps2_kernel_size', 3, 'Kernel size for the second con
 flags.DEFINE_integer('convcaps2_strides', 1, 'Strides for convolution in the second conv caps layer')
 flags.DEFINE_string('convcaps2_padding', 'VALID', 'SAME or VALID padding for the second conv capsule layer')  # TODO - should be SAME when same padding is working correctly
 flags.DEFINE_integer('convcaps2_n_routing_iterations', 3, 'Number of routing iterations for the second conv caps layer')
-flags.DEFINE_float('convcaps2_init_beta_v', 0.5, 'Initial beta_v value for the second conv caps layer')
-flags.DEFINE_float('convcaps2_init_beta_a', -0.5, 'Initial beta_a value for the second conv caps layer')
-flags.DEFINE_float('convcaps2_init_inverse_temp', 0.02, 'Initial inverse temperature value for the second conv caps layer')
-flags.DEFINE_float('convcaps2_final_inverse_temp', 0.06, 'Final inverse temperature value for the second conv caps layer')
+flags.DEFINE_float('convcaps2_init_beta_v', 0., 'Initial beta_v value for the second conv caps layer')
+flags.DEFINE_float('convcaps2_init_beta_a', 0., 'Initial beta_a value for the second conv caps layer')
+flags.DEFINE_float('convcaps2_init_inverse_temp', 0.03, 'Initial inverse temperature value for the second conv caps layer')
+flags.DEFINE_float('convcaps2_final_inverse_temp', 0.1, 'Final inverse temperature value for the second conv caps layer')
 
 # Class Capsules
 flags.DEFINE_integer('classcaps_n_routing_iterations', 3, 'Number of routing iterations for the class caps layer')
-flags.DEFINE_float('classcaps_init_beta_v', 0.5, 'Initial beta_v value for the class caps layer')
+flags.DEFINE_float('classcaps_init_beta_v', 1., 'Initial beta_v value for the class caps layer')
 flags.DEFINE_float('classcaps_init_beta_a', -0.5, 'Initial beta_a value for the class caps layer')
-flags.DEFINE_float('classcaps_init_inverse_temp', 0.005, 'Initial inverse temperature value for the class caps layer')
-flags.DEFINE_float('classcaps_final_inverse_temp', 0.015, 'Final inverse temperature value for the class caps layer')
+flags.DEFINE_float('classcaps_init_inverse_temp', 0.0001, 'Initial inverse temperature value for the class caps layer')
+flags.DEFINE_float('classcaps_final_inverse_temp', 0.0003, 'Final inverse temperature value for the class caps layer')
 
 # Spread Loss
 flags.DEFINE_float('initial_margin', 0.2, 'Initial value for the margin in the spread loss')
 flags.DEFINE_float('final_margin', 0.9, 'Initial value for the margin in the spread loss')
-flags.DEFINE_integer('margin_decay_steps', 10000, 'Number of training steps over which to increase the margin')  # TODO - is this mentioned in the paper?
+flags.DEFINE_integer('margin_decay_steps', 300, 'Number of training steps over which to increase the margin')  # TODO - is this mentioned in the paper?
 
 # Training configuration
 flags.DEFINE_boolean('infer', False, 'Load model for inference')
@@ -86,8 +86,8 @@ flags.DEFINE_integer('max_train_epochs', 1000, 'Max number of training epochs')
 flags.DEFINE_boolean('test', False, 'Load a model and compute test performance')
 flags.DEFINE_integer('save_every', 1, 'Epoch interval at which to save the model during training')  # TODO - should change this to an iteration interval as epochs are long
 flags.DEFINE_integer('test_every', 1, 'Epoch interval at which to test the model during training')
-flags.DEFINE_integer('train_summary_every', 5, 'Iteration interval at which to record a train summary during training')
-flags.DEFINE_integer('validation_summary_every', 10, 'Iteration interval at which to record a test summary during training')
+flags.DEFINE_integer('train_summary_every', 1, 'Iteration interval at which to record a train summary during training')
+flags.DEFINE_integer('validation_summary_every', 5, 'Iteration interval at which to record a test summary during training')
 
 # This is very important for TensorBoard
 # each model will end up in its own unique folder using time module

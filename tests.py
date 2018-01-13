@@ -1,8 +1,10 @@
-from models import utils
 import numpy as np
 import math
 import tensorflow as tf
 import time
+
+from models import utils
+from models import tf_ops
 
 
 def test_out(pass_condition, name):
@@ -30,32 +32,6 @@ def conv_out_size_test():
     print(np.zeros(out_size))
 
 
-def get_conv_slices_test():
-    kernel_size = [3, 3]
-    padding = 'same'
-    if padding is 'same':
-        pad = [[0, 0],
-               [int(math.floor((kernel_size[0] - 1) / 2)), int(math.ceil((kernel_size[0] - 1) / 2))],
-               [int(math.floor((kernel_size[1] - 1) / 2)), int(math.ceil((kernel_size[1] - 1) / 2))],
-               [0, 0],
-               [0, 0],
-               [0, 0],
-               [0, 0],
-               [0, 0]]
-    else:
-        pad = [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]
-    in_height = 5
-    in_width = 5
-    strides = [1, 1]
-
-    conv_pose = np.pad(np.reshape(np.arange(in_height*in_width) + 1, [1, in_height, in_width, 1, 1, 1, 1, 1]), pad, 'constant')
-
-    slices = utils.extract_conv_caps_patches(conv_pose, kernel_size, padding, in_height, in_width, strides)
-
-    print(conv_pose)
-    print(*[x for x in slices], sep='\n new array \n')
-
-
 def extract_image_patches_nd_test():
     input_shape1 = [1, 12, 12, 1]
     kernel_size = [5, 5]
@@ -65,7 +41,7 @@ def extract_image_patches_nd_test():
 
     input_tensor1 = tf.reshape(tf.constant(list(range(np.prod(input_shape1)))), input_shape1)
 
-    out1 = utils.extract_image_patches_nd(input_tensor1, ksizes, [1, *strides, 1], [1, 1, 1, 1], padding)
+    out1 = tf_ops.extract_image_patches_nd(input_tensor1, ksizes, [1, *strides, 1], [1, 1, 1, 1], padding)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -110,7 +86,7 @@ def expand_dims_nd_v_reshape_speed_test():
     a = tf.ones([4, 5, 3])
 
     b = tf.reshape(a, [4, 1, 5, 3, 1])
-    c = utils.expand_dims_nd(a, [1, 3])
+    c = tf_ops.expand_dims_nd(a, [1, 3])
 
     n_repeats = 10000
 
@@ -277,9 +253,9 @@ def get_full_indices_test():
 def repeat_test():
     a_np = np.random.uniform(size=[3, 6, 5, 7])
     a = tf.constant(a_np)
-    b1 = utils.repeat(a, 3, axis=0)
-    b2 = utils.repeat(a, 5, axis=1)
-    b3 = utils.repeat(a, 7, axis=3)
+    b1 = tf_ops.repeat(a, 3, axis=0)
+    b2 = tf_ops.repeat(a, 5, axis=1)
+    b3 = tf_ops.repeat(a, 7, axis=3)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -383,7 +359,7 @@ def sparse_reduce_sum_nd_test():
     dense_shape = tf.constant([2, 2, 2], dtype=tf.int64)
     sparse_tensor = tf.SparseTensor(indices, values, dense_shape)
 
-    reduce_sum_tensor = utils.sparse_reduce_sum_nd(sparse_tensor, axis=[1], keep_dims=True)
+    reduce_sum_tensor = tf_ops.sparse_reduce_sum_nd(sparse_tensor, axis=[1], keep_dims=True)
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
@@ -400,7 +376,6 @@ def sparse_reduce_sum_nd_test():
 
 
 if __name__ == '__main__':
-    #get_conv_slices_test()
     #extract_image_patches_nd_test()
     #expand_dims_nd_v_reshape_speed_test()
     #get_reverse_conv_2d_mask_test()
@@ -412,7 +387,7 @@ if __name__ == '__main__':
     #tf_zero_div_test()
     #gather_nd_test()
     #sparse_values_op_test()
-    indices_reshape_test()
+    #indices_reshape_test()
     #sparse_get_dims_test()
     #permute_gather_test()
-    #sparse_reduce_sum_nd_test()
+    sparse_reduce_sum_nd_test()

@@ -65,7 +65,7 @@ class CapsNetEMModel(BaseModel):
         with graph.as_default():
             # Create placeholders
             self.placeholders = {'image': tf.placeholder(tf.float32, [None, self.image_dim], name='image'),
-                                 'label': tf.placeholder(tf.int32, [None, self.n_classes], name='label')}
+                                 'label': tf.placeholder(tf.float32, [None, self.n_classes], name='label')}
 
             # Define main model graph
             self.margin = tf.train.polynomial_decay(self.initial_margin, self.global_step, self.margin_decay_steps,
@@ -80,27 +80,32 @@ class CapsNetEMModel(BaseModel):
 
             # Reshape flattened image tensor to 2D
             images = tf.reshape(self.placeholders['image'], [-1, 28, 28, 1])
+
+            # Rescale image from [0, 1] to [-1, 1] - this is an attempt to get round the problem of (in_vote - mean)^2/variance = 0/0 = NaN in the E-Step caused by all zero image patches
+            # This problem might also be solved by initialising the conv1 or primarycaps layer with a small bias (rather than zero) such that the convcaps affine transform doesn't produce zeros everywhere in a patch due to a uniform zero input
+            images = 2 * images - 1.
+
             # summaries['images'] = tf.summary.image('input_images', images)
             tf.summary.image('input_images', images, max_outputs=1)
 
             # Create ReLU Conv1 de-rendering layer
             with tf.variable_scope('relu_conv1'):
                 relu_conv1_out = tf.layers.conv2d(images, **self.relu_conv1_params, activation=tf.nn.relu,
-                                                  kernel_initializer=tf.truncated_normal_initializer(stddev=0.5))
+                                                  kernel_initializer=tf.truncated_normal_initializer(stddev=0.1))
 
             # Create PrimaryCaps layer
             primarycaps_pose, primarycaps_activation = primarycaps_layer(relu_conv1_out, **self.primarycaps_params)
 
             # Create ConvCaps1 layer
-            convcaps1_pose, convcaps1_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps1_params)
+            #convcaps1_pose, convcaps1_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps1_params)
 
             # Create ConvCaps2 layer
-            convcaps2_pose, convcaps2_activation = convcaps_layer(convcaps1_pose, convcaps1_activation, **self.convcaps2_params)
-            #convcaps2_pose, convcaps2_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps2_params)
+            #convcaps2_pose, convcaps2_activation = convcaps_layer(convcaps1_pose, convcaps1_activation, **self.convcaps2_params)
+            convcaps2_pose, convcaps2_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps2_params)
 
             # Create Class Capsules layer
             classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, **self.classcaps_params)
-            # classcaps_pose, classcaps_activation = classcaps_layer(primarycaps_pose, primarycaps_activation, **classcaps_params)
+            #classcaps_pose, classcaps_activation = classcaps_layer(primarycaps_pose, primarycaps_activation, **self.classcaps_params)
 
             # Create spread loss
             self.loss = spread_loss(classcaps_activation, self.placeholders['label'], **self.spread_loss_params)
@@ -115,9 +120,13 @@ class CapsNetEMModel(BaseModel):
             self.summaries['loss'] = tf.summary.scalar('loss', self.loss)
 
             tf.summary.histogram('primarycaps_activation', primarycaps_activation)
-            tf.summary.histogram('convcaps1_activation', convcaps1_activation)
-            tf.summary.histogram('convcaps2_activation', convcaps2_activation)
-            tf.summary.histogram('classcaps_activation', classcaps_activation)
+
+            # Add gradient summaries
+            gradients = tf.gradients(self.loss, tf.trainable_variables())
+            gradients = list(zip(gradients, tf.trainable_variables()))
+
+            for gradient, variable in gradients:
+                tf.summary.histogram(variable.name + '/gradient', gradient)
 
             # Define optimiser
             self.optim = tf.train.AdamOptimizer(self.learning_rate)

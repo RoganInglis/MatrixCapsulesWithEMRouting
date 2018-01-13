@@ -8,8 +8,10 @@ from models import utils
 # TODO - sort out interchangeable use of 'size' and 'shape'; change to 'shape'
 # TODO - make sure use of dense_shape, full_shape and patches_shape is consistent
 # Define eps - small constant for safe division/log
-div_eps = 1e-6
-log_eps = 1e-6
+div_small_eps = 1e-8
+div_zero_eps = 1e-8
+div_big_eps = 1e8
+log_eps = 1e-8
 
 
 def safe_divide(x, y, name=None):
@@ -18,11 +20,12 @@ def safe_divide(x, y, name=None):
     else:
         scope_name = name
     with tf.variable_scope(scope_name):
-        # TODO - should use variable eps such that output is always within representable range - then might be able to re add summary for b in the e-step
-        # Want to clamp any values of y that are less than div_eps to div_eps
-        y_eps = tf.where(tf.greater(tf.abs(y), div_eps), y, tf.sign(y) * div_eps * tf.ones_like(y))
+        # Want to clamp any values of y that are less than div_small_eps to div_small_eps
+        #y_eps = tf.where(tf.greater(tf.abs(y), div_small_eps), y, tf.sign(y) * div_small_eps * tf.ones_like(y))
+        y_eps = tf.where(tf.greater(tf.abs(y), div_small_eps), y, tf.sign(y) * div_small_eps + y)  # Testing just adding eps to small y here in an attempt to preserve gradient
 
         z = tf.divide(x, y_eps, name=name)
+
         return z
 
 

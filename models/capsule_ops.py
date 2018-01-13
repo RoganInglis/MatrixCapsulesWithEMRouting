@@ -39,8 +39,8 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
 
         # Create convolutional matmul kernel and tile over batch and out_size (as we need the same kernel to be
         # multiplied by each patch of conv_pose for each element in the batch)
-        kernel = tf.Variable(tf.truncated_normal([1, *ksizes[1:3], in_capsules, 1, 1, out_capsules, pose_size, pose_size], stddev=1), name='kernel')
-        tf.summary.histogram('kernel', kernel)
+        kernel = tf.Variable(tf.truncated_normal([1, *ksizes[1:3], in_capsules, 1, 1, out_capsules, pose_size, pose_size], stddev=0.1), name='weights')
+        tf.summary.histogram('weights', kernel)
         kernel = tf.tile(kernel, [batch_size, 1, 1, 1, *out_size, 1, 1, 1])
 
         # Re-organise in_pose so performing matmul with kernel computes the required convolutional affine transform
@@ -63,7 +63,6 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
                                               name='extract_activation_patches')
         # [batch_size, kernel_size[0], kernel_size[1], in_capsules, out_size[0], out_size[1], 1, 1, 1]
         activation = tf.reshape(activation, [batch_size, *ksizes[1:3], in_capsules, *out_size, 1, 1, 1])
-        #tf.summary.histogram('convcaps_affine_activation', activation)
 
         return vote, activation
 
@@ -176,17 +175,18 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp, conv=False):
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
         mean = tf_ops.safe_divide(tf.reduce_sum(tf.multiply(rp, in_vote, name='mean_mul'), axis=[1, 2, 3],
                                                 keep_dims=True),
-                                  rp_reduce_sum)
+                                  rp_reduce_sum, name='safe_divide_mean')
 
         # Update variances (same shape as mean)
         diff_vote_mean = tf.subtract(in_vote, mean, name='vote_mean_sub')
         variance = tf_ops.safe_divide(tf.reduce_sum(tf.multiply(rp,
                                                                 tf.square(diff_vote_mean, name='diff_vote_mean_square'),
                                                                 name='variance_mul'), axis=[1, 2, 3], keep_dims=True),
-                                      rp_reduce_sum)
+                                      rp_reduce_sum, name='safe_divide_variance')  # TODO - getting very high values with this. Is it possible to reduce with sensible initialisations?
 
-        # Clip variance to be positive for sqrt (negative values must be errors caused by safe divide)
-        variance = tf.where(tf.less(variance, 0.), tf.zeros_like(variance), variance)
+        # Clip variance to be larger than eps for sqrt (negative values must be errors caused by safe divide)
+        #eps = 1e-8
+        #variance = tf.where(tf.less(variance, eps), eps * tf.ones_like(variance), variance, name='clipped_variance')  TODO - I think this is unnecessary, rp_reduce_sum cant be negative and safe divide shouldnt reverse sign
 
         # Compute cost (same shape as mean)
         cost_h = tf.multiply(tf.add(beta_v, 0.5 * tf_ops.safe_log(variance, name='log_stdd'), name='add_beta_log_stdd'),
@@ -195,7 +195,7 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp, conv=False):
         # Compute new activations
         # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, 1, 1]
         activation = tf.nn.sigmoid(inverse_temp*(tf.subtract(beta_a, tf.reduce_sum(cost_h, axis=[-2, -1],
-                                                                                   keep_dims=True))))
+                                                                                   keep_dims=True))), name='activation_sigmoid')
 
         tf.summary.histogram('rp', rp)
         tf.summary.histogram('rp_reduce_sum', rp_reduce_sum)
@@ -212,7 +212,7 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp, conv=False):
         return mean, variance, activation
 
 
-def e_step(mean, variance, activation, in_vote, logspace=True, **sparse_args):
+def e_step(mean, variance, activation, in_vote, logspace=False, **sparse_args):
     """
     Creates the TensorFlow graph for the E-Step of the EM Routing algorithm
     :param mean: Tensor with shape [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
@@ -226,8 +226,9 @@ def e_step(mean, variance, activation, in_vote, logspace=True, **sparse_args):
     with tf.variable_scope('e_step'):
         if logspace:
             # Compute log(P): the log probability of each in_vote (data point)
-            a = tf_ops.safe_log(2*math.pi*variance)  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
-            b = tf_ops.safe_divide(tf.square(tf.subtract(in_vote, mean, name='b_sub')), variance)  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
+            a = tf_ops.safe_log(2*math.pi*variance, name='safe_log_a')  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
+            b = tf_ops.safe_divide(tf.square(tf.subtract(in_vote, mean, name='b_sub'), name='vote_mean_square'),
+                                   variance, name='safe_divide_b')  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
 
             log_p_pre_sum = tf.add(a, b, name='log_p_sub')  # [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, pose_size, pose_size]
 
@@ -268,35 +269,35 @@ def e_step(mean, variance, activation, in_vote, logspace=True, **sparse_args):
             tf.summary.histogram('log_p', log_p)
             tf.summary.histogram('log_p_activation', log_p_activation)
         else:
-            a = tf.sqrt(tf.reduce_prod(2*math.pi*variance, axis=[-2, -1], keep_dims=True))
-            b = 0.5 * tf.reduce_sum(tf_ops.safe_divide(tf.square(in_vote - mean), variance), axis=[-2, -1], keep_dims=True)
+            a = tf_ops.safe_log(2 * math.pi * variance)
+            b = tf_ops.safe_divide(tf.square(in_vote - mean), variance, name='safe_divide_b')
 
-            p = tf_ops.safe_divide(tf.exp(-b), a)
+            a_b = tf.add(a, b)
 
-            # Clip p to between 0 and 1 if safe divide has caused this not to be the case
-            p = tf.where(tf.greater(p, 1.), tf.ones_like(p), p)
-            p = tf.where(tf.less(p, 0.), tf.zeros_like(p), p)
+            a_b_sum = 0.5 * tf.reduce_sum(a_b, axis=[-2, -1], keep_dims=True)  # TODO - doing this sum gives numbers ~100/2 which then produces very small numbers in the next exp
 
-            activation_p = activation * p
+            p = tf.exp(-a_b_sum, name='exp_p')  # TODO - very small numbers here
+
+            activation_p = tf.multiply(activation, p, name='activation_p_mul')
 
             if sparse_args['sparse']:
                 activation_p_reduce_sum = tf_ops.reduce_sumsparse(activation_p, sparse_args['strides'], sparse_args['rates'],
-                                                           sparse_args['padding'], sparse_args['in_size'],
-                                                           axis=[4, 5, 6], keep_dims=True)
+                                                                  sparse_args['padding'], sparse_args['in_size'],
+                                                                  axis=[4, 5, 6], keep_dims=True)
 
                 # Get patch size and dense shape for conversion back to dense patches later
                 dense_shape = tf_ops.get_shape_list(activation_p)
 
                 # Convert activation_p to full for compatibility with activation_p_reduce_sum
                 activation_p = tf_ops.patches_to_full(activation_p, sparse_args['strides'], sparse_args['rates'],
-                                               sparse_args['padding'], sparse_args['in_size'])
+                                                      sparse_args['padding'], sparse_args['in_size'])
 
                 # Compute new r
                 r = tf_ops.safe_divide(activation_p, activation_p_reduce_sum)
 
                 # Convert r back to patches (since activation_p is patches this is valid)
                 indices = tf_ops.get_dense_indices(dense_shape, sparse_args['in_size'], sparse_args['strides'],
-                                            sparse_args['rates'], sparse_args['padding'])  # TODO - might be more efficient to pass the indices out from reduce_sumsparse as they are already in there (although this makes the reduce_sumsparse function less general)
+                                                   sparse_args['rates'], sparse_args['padding'])  # TODO - might be more efficient to pass the indices out from reduce_sumsparse (or pass indices to reduce_sumsparse) as they are already in there (although this makes the reduce_sumsparse function less general)
                 r = tf_ops.full_to_patches(r, indices, dense_shape)
 
             else:
@@ -309,7 +310,7 @@ def e_step(mean, variance, activation, in_vote, logspace=True, **sparse_args):
             tf.summary.histogram('activation_p', activation_p)
 
         tf.summary.histogram('a', a)
-        #tf.summary.histogram('b', b)  TODO - this breaks the run as there are NaNs in the summary at the beginning, caused by division of very small (in_vote - mean)^2 divided by large variance?
+        tf.summary.histogram('b', b)
         tf.summary.histogram('r', r)
         return r
 
@@ -399,11 +400,10 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_beta_v=1., i
             sparse_args = {'sparse': False}
 
         # TODO - remove this summary once patch reconstruction has been debugged?
+        """
         tf.summary.image('in_activation_00', tf.reshape(tf.reshape(in_activation[0],
                                                                    shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 0, 0],
                                                         shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
-        tf.summary.histogram('in_vote', in_vote)
-        tf.summary.histogram('in_activation', in_activation)
         if conv:
             tf.summary.image('in_activation_01', tf.reshape(tf.reshape(in_activation[0],
                                                                        shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 0, 1],
@@ -420,6 +420,7 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_beta_v=1., i
             tf.summary.image('in_activation_22', tf.reshape(tf.reshape(in_activation[0],
                                                                        shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 2, 2],
                                                             shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
+        """
 
         # Do routing iterations
         for routing_iteration in range(n_routing_iterations - 1):
