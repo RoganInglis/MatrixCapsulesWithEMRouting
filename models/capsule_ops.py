@@ -39,7 +39,7 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
 
         # Create convolutional matmul kernel and tile over batch and out_size (as we need the same kernel to be
         # multiplied by each patch of conv_pose for each element in the batch)
-        kernel = tf.Variable(tf.truncated_normal([1, *ksizes[1:3], in_capsules, 1, 1, out_capsules, pose_size, pose_size], stddev=0.1), name='weights')
+        kernel = tf.Variable(tf.truncated_normal([1, *ksizes[1:3], in_capsules, 1, 1, out_capsules, pose_size, pose_size], stddev=0.5), name='weights')
         tf.summary.histogram('weights', kernel)
         kernel = tf.tile(kernel, [batch_size, 1, 1, 1, *out_size, 1, 1, 1])
 
@@ -89,7 +89,7 @@ def caps_affine_transform(in_pose, in_activation, out_capsules, coord_addition=T
 
         # Create matmul weights and tile over batch, in_rows and in_columns (as we need the same weights to be
         # multiplied by each batch element and because we need to share transformation matrices over the whole image)
-        weights = tf.Variable(tf.truncated_normal([1, 1, 1, in_capsules, 1, 1, out_capsules, pose_size, pose_size]), name='weights')
+        weights = tf.Variable(tf.truncated_normal([1, 1, 1, in_capsules, 1, 1, out_capsules, pose_size, pose_size], stddev=0.5), name='weights')
         tf.summary.histogram('weights', weights)
         weights = tf.tile(weights, [batch_size, in_rows, in_cols, 1, 1, 1, 1, 1, 1])
 
@@ -184,10 +184,6 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp, conv=False):
                                                                 name='variance_mul'), axis=[1, 2, 3], keep_dims=True),
                                       rp_reduce_sum, name='safe_divide_variance')  # TODO - getting very high values with this. Is it possible to reduce with sensible initialisations?
 
-        # Clip variance to be larger than eps for sqrt (negative values must be errors caused by safe divide)
-        #eps = 1e-8
-        #variance = tf.where(tf.less(variance, eps), eps * tf.ones_like(variance), variance, name='clipped_variance')  TODO - I think this is unnecessary, rp_reduce_sum cant be negative and safe divide shouldnt reverse sign
-
         # Compute cost (same shape as mean)
         cost_h = tf.multiply(tf.add(beta_v, 0.5 * tf_ops.safe_log(variance, name='log_stdd'), name='add_beta_log_stdd'),
                              rp_reduce_sum, name='cost_h_mul')
@@ -278,6 +274,9 @@ def e_step(mean, variance, activation, in_vote, logspace=False, **sparse_args):
 
             p = tf.exp(-a_b_sum, name='exp_p')  # TODO - very small numbers here
 
+            # Clip to between 0 and 1 if safe divide has caused this not to be the case
+            p = tf.clip_by_value(p, 0., 1.)  # TODO - test without this (and pay attention to values in tensorboard)
+
             activation_p = tf.multiply(activation, p, name='activation_p_mul')
 
             if sparse_args['sparse']:
@@ -305,6 +304,9 @@ def e_step(mean, variance, activation, in_vote, logspace=False, **sparse_args):
 
                 # Compute new r
                 r = tf_ops.safe_divide(activation_p, activation_p_reduce_sum)
+
+            # Clip r to between 0 and 1 if this is not the case
+            tf.clip_by_value(r, 0., 1.)  # TODO - test without this
 
             tf.summary.histogram('p', p)
             tf.summary.histogram('activation_p', activation_p)
@@ -421,15 +423,19 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_beta_v=1., i
                                                                        shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 2, 2],
                                                             shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
         """
+        # Stop Gradients
+        in_vote_stopped = tf.stop_gradient(in_vote)
+        in_activation_stopped = tf.stop_gradient(in_activation)  # TODO - Seems to work better with this enabled, not sure if this is correct though. Improvement is possibly due to a (not totally correct) gradient being able to pass through in this case (with a reasonable learning rate), rather than blowing up/vanishing (most likely) when allowed to pass through all iterations in a way similar to an RNN. Could gradient clipping help? Might not if it is vanishing gradients that are the problem
+
 
         # Do routing iterations
         for routing_iteration in range(n_routing_iterations - 1):
             with tf.variable_scope("routing_iteration_{}".format(routing_iteration + 1)):
                 # Do M-Step to get Gaussian means and standard deviations and update activations
-                mean, variance, activation = m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp, conv)
+                mean, variance, activation = m_step(r, in_activation_stopped, in_vote_stopped, beta_v, beta_a, inverse_temp, conv)
 
                 # Do E-Step to update R
-                r = e_step(mean, variance, activation, in_vote, **sparse_args)
+                r = e_step(mean, variance, activation, in_vote_stopped, **sparse_args)
 
                 # Update inverse temp
                 inverse_temp += inverse_temp_increment
