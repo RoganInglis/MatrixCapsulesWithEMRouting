@@ -66,6 +66,17 @@ The initial inverse temperature parameters and schedule appear to have a signifi
 (as the activation and activation gradient magnitudes both depend on how saturated the sigmoid function in the E-step is, 
 which is controlled by the inverse temperature parameter) however these values are also not mentioned in the paper.
 
+**_Margin schedule_**
+
+It is mentioned in the paper that the margin of the spread loss is increased from 0.2 to 0.9 during training, however
+the actual schedule is not mentioned so it is unclear whether this should be a very gentle increase, e.g. over a few 
+epochs, or a quick increase over just the first hundred or so iterations. A slow increase appears to increase training 
+time significantly as a low margin results in smaller gradients, but I have not been able to run enough tests yet to 
+determine the effect on final performance. A quick increase with a high learning rate does seem to result in dead 
+capsules. It would be interesting to visualise the loss surface using something like 
+[this](https://arxiv.org/pdf/1712.09913.pdf). The appropriate margin schedule will depend on at least 
+batch size and learning rate. 
+
 **_Padding_**
 
 The paper seems to imply 'SAME' padding for convolutional layers given that the bottom of section 4 suggests that corner

@@ -55,7 +55,7 @@ flags.DEFINE_integer('convcaps1_kernel_size', 3, 'Kernel size for the first conv
 flags.DEFINE_integer('convcaps1_strides', 1, 'Strides for convolution in the first conv caps layer')  # TODO - change back to 2 when strides > 1 are working correctly
 flags.DEFINE_string('convcaps1_padding', 'VALID', 'SAME or VALID padding for the first conv capsule layer')  # TODO - should be SAME when same padding is working correctly
 flags.DEFINE_integer('convcaps1_n_routing_iterations', 3, 'Number of routing iterations for the first conv caps layer')
-flags.DEFINE_float('convcaps1_init_beta_v', 1., 'Initial beta_v value for the first conv caps layer')
+flags.DEFINE_float('convcaps1_init_beta_v', 0., 'Initial beta_v value for the first conv caps layer')
 flags.DEFINE_float('convcaps1_init_beta_a', 0., 'Initial beta_a value for the first conv caps layer')
 flags.DEFINE_float('convcaps1_init_inverse_temp', 0.03, 'Initial inverse temperature value for the first conv caps layer')
 flags.DEFINE_float('convcaps1_final_inverse_temp', 0.1, 'Final inverse temperature value for the first conv caps layer')
@@ -66,14 +66,14 @@ flags.DEFINE_integer('convcaps2_kernel_size', 3, 'Kernel size for the second con
 flags.DEFINE_integer('convcaps2_strides', 1, 'Strides for convolution in the second conv caps layer')
 flags.DEFINE_string('convcaps2_padding', 'VALID', 'SAME or VALID padding for the second conv capsule layer')  # TODO - should be SAME when same padding is working correctly
 flags.DEFINE_integer('convcaps2_n_routing_iterations', 3, 'Number of routing iterations for the second conv caps layer')
-flags.DEFINE_float('convcaps2_init_beta_v', 1., 'Initial beta_v value for the second conv caps layer')  # TODO - set to 1.?
+flags.DEFINE_float('convcaps2_init_beta_v', 0., 'Initial beta_v value for the second conv caps layer')  # TODO - set to 1.?
 flags.DEFINE_float('convcaps2_init_beta_a', 0., 'Initial beta_a value for the second conv caps layer')
 flags.DEFINE_float('convcaps2_init_inverse_temp', 0.03, 'Initial inverse temperature value for the second conv caps layer')
 flags.DEFINE_float('convcaps2_final_inverse_temp', 0.1, 'Final inverse temperature value for the second conv caps layer')
 
 # Class Capsules
 flags.DEFINE_integer('classcaps_n_routing_iterations', 3, 'Number of routing iterations for the class caps layer')
-flags.DEFINE_float('classcaps_init_beta_v', 1., 'Initial beta_v value for the class caps layer')  # TODO - set to 1.?
+flags.DEFINE_float('classcaps_init_beta_v', 0., 'Initial beta_v value for the class caps layer')  # TODO - set to 1.?
 flags.DEFINE_float('classcaps_init_beta_a', 0., 'Initial beta_a value for the class caps layer')
 flags.DEFINE_float('classcaps_init_inverse_temp', 0.0005, 'Initial inverse temperature value for the class caps layer')
 flags.DEFINE_float('classcaps_final_inverse_temp', 0.003, 'Final inverse temperature value for the class caps layer')
@@ -81,7 +81,7 @@ flags.DEFINE_float('classcaps_final_inverse_temp', 0.003, 'Final inverse tempera
 # Spread Loss
 flags.DEFINE_float('initial_margin', 0.2, 'Initial value for the margin in the spread loss')
 flags.DEFINE_float('final_margin', 0.9, 'Initial value for the margin in the spread loss')
-flags.DEFINE_integer('margin_decay_steps', 2000, 'Number of training steps over which to increase the margin')  # TODO - is this mentioned in the paper?
+flags.DEFINE_integer('margin_decay_steps', 4000, 'Number of training steps over which to increase the margin')  # TODO - is this mentioned in the paper?
 
 # Training configuration
 flags.DEFINE_boolean('infer', False, 'Load model for inference')
