@@ -21,7 +21,8 @@ class CapsNetEMModel(BaseModel):
                                   'strides': self.config['relu_conv1_stride']}
 
         self.primarycaps_params = {'out_capsules': self.config['primarycaps_out_capsules'],
-                                   'pose_size': self.config['pose_size']}
+                                   'pose_size': self.config['pose_size'],
+                                   'summaries': self.full_summaries}
 
         self.convcaps1_params = {'out_capsules': self.config['convcaps1_out_capsules'],
                                  'kernel_size': self.config['convcaps1_kernel_size'],
@@ -31,7 +32,8 @@ class CapsNetEMModel(BaseModel):
                                  'init_beta_v': self.config['convcaps1_init_beta_v'],
                                  'init_beta_a': self.config['convcaps1_init_beta_a'],
                                  'init_inverse_temp': self.config['convcaps1_init_inverse_temp'],
-                                 'final_inverse_temp': self.config['convcaps1_final_inverse_temp']}
+                                 'final_inverse_temp': self.config['convcaps1_final_inverse_temp'],
+                                 'summaries': self.full_summaries}
 
         self.convcaps2_params = {'out_capsules': self.config['convcaps2_out_capsules'],
                                  'kernel_size': self.config['convcaps2_kernel_size'],
@@ -41,14 +43,16 @@ class CapsNetEMModel(BaseModel):
                                  'init_beta_a': self.config['convcaps2_init_beta_a'],
                                  'n_routing_iterations': self.config['convcaps2_n_routing_iterations'],
                                  'init_inverse_temp': self.config['convcaps2_init_inverse_temp'],
-                                 'final_inverse_temp': self.config['convcaps2_final_inverse_temp']}
+                                 'final_inverse_temp': self.config['convcaps2_final_inverse_temp'],
+                                 'summaries': self.full_summaries}
 
         self.classcaps_params = {'n_classes': self.config['n_classes'],
                                  'n_routing_iterations': self.config['classcaps_n_routing_iterations'],
                                  'init_beta_v': self.config['classcaps_init_beta_v'],
                                  'init_beta_a': self.config['classcaps_init_beta_a'],
                                  'init_inverse_temp': self.config['classcaps_init_inverse_temp'],
-                                 'final_inverse_temp': self.config['classcaps_final_inverse_temp']}
+                                 'final_inverse_temp': self.config['classcaps_final_inverse_temp'],
+                                 'summaries': self.full_summaries}
 
     def get_best_config(self):
         # This function is here to be overridden completely.
@@ -68,11 +72,19 @@ class CapsNetEMModel(BaseModel):
                                  'label': tf.placeholder(tf.float32, [None, self.n_classes], name='label')}
 
             # Define main model graph
+
+            # Set up increasing margin
             self.margin = tf.train.polynomial_decay(self.initial_margin, self.global_step, self.margin_decay_steps,
                                                     self.final_margin)
             tf.summary.scalar('margin', self.margin)
 
             self.spread_loss_params = {'margin': self.margin}
+
+            # Set up decaying learning rate
+            if self.learning_rate_decay:
+                self.learning_rate = tf.train.polynomial_decay(self.learning_rate, self.global_step,
+                                                               self.learning_rate_decay_steps, self.final_learning_rate)
+                tf.summary.scalar('learning_rate', self.learning_rate)
 
             # Initalise summaries dict - using dict so that we can merge only select summaries; don't want image summaries all
             # the time
@@ -91,7 +103,7 @@ class CapsNetEMModel(BaseModel):
             # Create ReLU Conv1 de-rendering layer
             with tf.variable_scope('relu_conv1'):
                 relu_conv1_out = tf.layers.conv2d(images, **self.relu_conv1_params, activation=tf.nn.relu,
-                                                  kernel_initializer=tf.truncated_normal_initializer(stddev=0.1))
+                                                  kernel_initializer=tf.truncated_normal_initializer(stddev=0.5))
 
             # Create PrimaryCaps layer
             primarycaps_pose, primarycaps_activation = primarycaps_layer(relu_conv1_out, **self.primarycaps_params)
@@ -122,15 +134,34 @@ class CapsNetEMModel(BaseModel):
             tf.summary.histogram('primarycaps_activation', primarycaps_activation)
 
             # Add gradient summaries
+            """
             gradients = tf.gradients(self.loss, tf.trainable_variables())
             gradients = list(zip(gradients, tf.trainable_variables()))
 
             for gradient, variable in gradients:
                 tf.summary.histogram(variable.name + '/gradient', gradient)
+            """
 
             # Define optimiser
             self.optim = tf.train.AdamOptimizer(self.learning_rate)
-            self.train_op = self.optim.minimize(self.loss, global_step=self.global_step)
+
+            # Sort out gradient clipping
+            if self.gradient_clipping:
+                gradients, variables = zip(*self.optim.compute_gradients(self.loss))
+
+                # Add gradient summaries
+                for grad, var in zip(gradients, variables):
+                    tf.summary.histogram(var.name + '/gradient', grad)
+
+                clipped_gradients, _ = tf.clip_by_global_norm(gradients, self.clipping_value)
+
+                # Add clipped gradient summaries
+                for grad, var in zip(clipped_gradients, variables):
+                    tf.summary.histogram(var.name + '/gradient_clipped', grad)
+
+                self.train_op = self.optim.apply_gradients(zip(clipped_gradients, variables), global_step=self.global_step)
+            else:
+                self.train_op = self.optim.minimize(self.loss, global_step=self.global_step)
 
             # Set up summaries
             self.train_summary = tf.summary.merge_all()

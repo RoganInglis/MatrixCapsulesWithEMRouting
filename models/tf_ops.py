@@ -8,10 +8,10 @@ from models import utils
 # TODO - sort out interchangeable use of 'size' and 'shape'; change to 'shape'
 # TODO - make sure use of dense_shape, full_shape and patches_shape is consistent
 # Define eps - small constant for safe division/log
-div_small_eps = 1e-8
-div_zero_eps = 1e-8
-div_big_eps = 1e8
-log_eps = 1e-8
+div_small_eps = 1e-9
+div_zero_eps = 1e-9
+div_big_eps = 1e9
+log_eps = 1e-9
 
 
 def safe_divide(x, y, name=None):
@@ -22,9 +22,9 @@ def safe_divide(x, y, name=None):
     with tf.variable_scope(scope_name):
         # Want to clamp any values of y that are less than div_small_eps to div_small_eps
         #y_eps = tf.where(tf.greater(tf.abs(y), div_small_eps), y, tf.sign(y) * div_small_eps * tf.ones_like(y))
-        y_eps = tf.where(tf.greater(tf.abs(y), div_small_eps), y, tf.sign(y) * div_small_eps + y)  # Testing just adding eps to small y here in an attempt to preserve gradient
+        y = tf.where(tf.greater(tf.abs(y), div_small_eps), y, tf.sign(y) * div_small_eps + y)  # Testing just adding eps to small y here in an attempt to preserve gradient
 
-        z = tf.divide(x, y_eps, name=name)
+        z = tf.divide(x, y, name=name)
 
         return z
 
@@ -36,8 +36,8 @@ def safe_log(x, name=None):
         scope_name = name
     with tf.variable_scope(scope_name):
         # Want to clamp any values of x less than log_eps to log_eps
-        x_eps = tf.maximum(x, log_eps)
-        y = tf.log(x_eps)
+        x = tf.maximum(x, log_eps)
+        y = tf.log(x)
         return y
 
 
@@ -395,7 +395,7 @@ def full_to_patches(full_tensor, indices, dense_shape, name=None):
     else:
         scope_name = name
     with tf.variable_scope(scope_name):
-        # TODO - This is a hacky way to do this, only need to because of the 5D limit of gather_nd. If this limit is raised to 9 or higher then we can remove everything here up to the 'Extract patches' comment
+        # TODO - This is a hacky way to do this, only need to because of the 5D limit of gather_nd. If this limit is raised to 9 or higher then we can remove everything here before the 'Extract patches' comment
         values = tf.zeros(dense_shape)
         full_shape = get_shape_list(full_tensor)
         sparse_tensor = tf.SparseTensor(indices, tf.reshape(values, [-1]), tf.shape(full_tensor, out_type=tf.int64))

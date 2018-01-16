@@ -58,7 +58,7 @@ Some points that caused confusion during this implementation:
 
 As per the explanation in the [OpenReview comments](https://openreview.net/forum?id=HJWLfGWRb) these are per higher 
 level capsule type and are therefore vectors. The initial value of these seems to have a reasonable impact on the speed
-of the early stage of training, although an initial value is not mentioned in the paper.
+of the early stage of training, although initial values are not mentioned in the paper.
 
 **_Inverse temperature parameters_**
 
@@ -125,13 +125,11 @@ Future implementations of capsule networks would definitely benefit from new cap
 
 - [ ] Get convolutional capsule layers working for strides > 1
 - [ ] Test convolutional capsule layers with padding 'SAME'
-- [ ] Improve safe divide so that it will always produce a representable output then re-add b summary in E-step
 - [ ] Get working with SmallNORB dataset
-- [ ] Make summaries optional
 - [ ] Sort out license
 - [ ] Implement hyperparameter search
 - [ ] Implement easy resume training
-- [ ] Add optional decaying learning rate
+- [ ] Improve safe divide so that it will always produce a representable output
 
 ## Reference
 1. [Matrix Capsules with EM Routing paper](https://openreview.net/pdf?id=HJWLfGWRb)
