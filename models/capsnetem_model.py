@@ -230,3 +230,19 @@ class CapsNetEMModel(BaseModel):
                 validation_summary = self.sess.run(self.validation_summary, feed_dict=validation_feed_dict)
 
                 self.validation_summary_writer.add_summary(validation_summary, global_step)
+
+    def profile(self):
+        # Get batch
+        images, labels = self.data.train.next_batch(self.batch_size)
+        feed_dict = {self.placeholders['image']: images,
+                     self.placeholders['label']: labels}
+
+        run_metadata = tf.RunMetadata()
+
+        _ = self.sess.run(self.train_op, feed_dict=feed_dict,
+                          options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE), run_metadata=run_metadata)
+
+        profileOptionBuilder = tf.profiler.ProfileOptionBuilder
+        opts = profileOptionBuilder(profileOptionBuilder.time_and_memory()).order_by('micros').build()
+
+        tf.profiler.profile(self.graph, run_meta=run_metadata, cmd='code', options=opts)

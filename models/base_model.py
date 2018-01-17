@@ -78,7 +78,7 @@ class BaseModel(object):
             self.trainable_parameters = np.sum([np.prod(variable.get_shape().as_list())
                                                 for variable in tf.trainable_variables()])
 
-        print("Trainable parameters: {}".format(self.trainable_parameters))  # TODO - for debugging; remove
+        print("Trainable parameters: {}".format(self.trainable_parameters))  # TODO - for debugging; remove?
 
         # Add all the other common code for the initialization here
         gpu_options = tf.GPUOptions(allow_growth=True)
