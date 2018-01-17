@@ -81,7 +81,7 @@ def repeat(input_tensor, repeats, axis=0, name=None):
         return repeat_tensor
 
 
-def sparse_reduce_sum_nd(sparse_tensor, dense_shape, axis=None, keep_dims=False, name=None):
+def sparse_reduce_sum_nd(sparse_tensor, dense_shape, axis=None, keep_dims=False, mode='FAST', name=None):
     """
     Version of sparse_reduce_sum that works with tensors >5D. This assumes that dim 0 is batch size and axis is 3
     (or 4?)D max.
@@ -89,6 +89,7 @@ def sparse_reduce_sum_nd(sparse_tensor, dense_shape, axis=None, keep_dims=False,
     :param dense_shape
     :param axis:
     :param keep_dims:
+    :param mode:
     :param name:
     :return: full_tensor:
     """
@@ -99,45 +100,54 @@ def sparse_reduce_sum_nd(sparse_tensor, dense_shape, axis=None, keep_dims=False,
     with tf.variable_scope(scope_name):
         # Make sure axis is list
         axis = list(axis)
+        if mode is 'FAST':
+            # Convert sparse tensor to dense
+            dense_tensor = tf.sparse_tensor_to_dense(sparse_tensor, validate_indices=False)
 
-        # Need to sparse reshape to get around 5D limitation of sparse reduce sum
-        # Transpose so that axis is/are first + (leaving batch as zeroth) dims of tensor
-        perm = list(range(sparse_tensor.get_shape().ndims))
-        dense_perm_shape = dense_shape
-        new_axis = axis
-        for i, ax in enumerate(axis):
-            # i + 1 index here as we want to leave batch as dim 0
-            perm[i + 1], perm[ax] = perm[ax], perm[i + 1]
-            dense_perm_shape[i + 1], dense_perm_shape[ax] = dense_perm_shape[ax], dense_perm_shape[i + 1]
-            new_axis[i] = i + 1
+            # Rehape sparse_full to regain shape info
+            dense_tensor = tf.reshape(dense_tensor, dense_shape)
 
-        # Transpose sparse tensor so that non batch or axis dims are last
-        sparse_tensor = tf.sparse_transpose(sparse_tensor, perm)
-
-        if len(axis) + 1 < len(perm):
-            condensed_shape = [*dense_perm_shape[:len(axis) + 1], np.prod(dense_perm_shape[len(axis) + 1:])]
+            # Do standard reduce sum
+            full_tensor = tf.reduce_sum(dense_tensor, axis=axis, keep_dims=keep_dims)
         else:
-            condensed_shape = dense_perm_shape
+            # Need to sparse reshape to get around 5D limitation of sparse reduce sum
+            # Transpose so that axis is/are first + (leaving batch as zeroth) dims of tensor
+            perm = list(range(sparse_tensor.get_shape().ndims))
+            dense_perm_shape = dense_shape
+            new_axis = axis
+            for i, ax in enumerate(axis):
+                # i + 1 index here as we want to leave batch as dim 0
+                perm[i + 1], perm[ax] = perm[ax], perm[i + 1]
+                dense_perm_shape[i + 1], dense_perm_shape[ax] = dense_perm_shape[ax], dense_perm_shape[i + 1]
+                new_axis[i] = i + 1
 
-        # Reshape to combine other dims
-        sparse_tensor = tf.sparse_reshape(sparse_tensor, condensed_shape)
+            # Transpose sparse tensor so that non batch or axis dims are last
+            sparse_tensor = tf.sparse_transpose(sparse_tensor, perm)
 
-        # Do sparse reduce sum on resulting sparse tensor to get the required dense tensor
-        full_tensor = tf.sparse_reduce_sum(sparse_tensor, axis=new_axis, keep_dims=True)
+            if len(axis) + 1 < len(perm):
+                condensed_shape = [*dense_perm_shape[:len(axis) + 1], np.prod(dense_perm_shape[len(axis) + 1:])]
+            else:
+                condensed_shape = dense_perm_shape
 
-        # Reshape to regain condensed dimensions
-        new_shape = dense_perm_shape
-        for ax in new_axis:
-            new_shape[ax] = 1
+            # Reshape to combine other dims
+            sparse_tensor = tf.sparse_reshape(sparse_tensor, condensed_shape)
 
-        full_tensor = tf.reshape(full_tensor, new_shape)
+            # Do sparse reduce sum on resulting sparse tensor to get the required dense tensor
+            full_tensor = tf.sparse_reduce_sum(sparse_tensor, axis=new_axis, keep_dims=True)
 
-        # Transpose back to original orientation
-        full_tensor = tf.transpose(full_tensor, perm)
+            # Reshape to regain condensed dimensions
+            new_shape = dense_perm_shape
+            for ax in new_axis:
+                new_shape[ax] = 1
 
-        # Squeeze over axis if keep dims is False
-        if not keep_dims:
-            full_tensor = tf.squeeze(full_tensor, axis)
+            full_tensor = tf.reshape(full_tensor, new_shape)
+
+            # Transpose back to original orientation
+            full_tensor = tf.transpose(full_tensor, perm)
+
+            # Squeeze over axis if keep dims is False
+            if not keep_dims:
+                full_tensor = tf.squeeze(full_tensor, axis)
 
         return full_tensor
 
@@ -202,7 +212,7 @@ def reduce_logsumexpsparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='S
         return full_tensor
 
 
-def sparse_reduce_logsumexp(sparse_tensor, dense_shape, axis=None, keep_dims=False, name=None):
+def sparse_reduce_logsumexp(sparse_tensor, dense_shape, axis=None, keep_dims=False, mode='FAST', name=None):
     """
     Sparse version of tf.reduce_logsumexp that take a SparseTensor as input and returns a dense tensor. The design of
     this function takes advantage some properties that may be specific to this situation so care should be taken using
@@ -211,6 +221,7 @@ def sparse_reduce_logsumexp(sparse_tensor, dense_shape, axis=None, keep_dims=Fal
     :param dense_shape:
     :param axis:
     :param keep_dims:
+    :param mode:
     :param name:
     :return: full_tensor:
     """
@@ -219,26 +230,43 @@ def sparse_reduce_logsumexp(sparse_tensor, dense_shape, axis=None, keep_dims=Fal
     else:
         scope_name = name
     with tf.variable_scope(scope_name):
-        raw_max = tf.sparse_reduce_max(sparse_tensor, axis=axis, keep_dims=keep_dims)
+        if mode is 'FAST':
+            # First convert sparse to dense for reduce max (assumes tensor is no negative?)
+            dense_tensor = tf.sparse_tensor_to_dense(sparse_tensor, validate_indices=False)
 
-        # Reshape to regain shape info for raw_max
-        reduced_shape = dense_shape.copy()
-        for ax in axis:
-            reduced_shape[ax] = 1
-        raw_max = tf.reshape(raw_max, reduced_shape)
+            # Rehape sparse_full to regain shape info
+            dense_tensor = tf.reshape(dense_tensor, dense_shape)
 
-        conditional = tf.where(tf.is_finite(raw_max), raw_max, tf.zeros_like(raw_max))
-        my_max = tf.stop_gradient(conditional)
+            # Now compute raw max using standard rather than sparse reduce max
+            raw_max = tf.reduce_max(dense_tensor, axis=axis, keep_dims=True)
 
-        # Exp
-        # Convert sparse_tensor to full so that we can subtract my_max
-        sparse_full = tf.sparse_tensor_to_dense(sparse_tensor, validate_indices=False)
+            # Compute my_max
+            conditional = tf.where(tf.is_finite(raw_max), raw_max, tf.zeros_like(raw_max))
+            my_max = tf.stop_gradient(conditional)
 
-        # Rehape sparse_full to regain shape info
-        sparse_full = tf.reshape(sparse_full, dense_shape)
+            # Subtract my_max
+            exp_values = tf.exp(dense_tensor - my_max)
+        else:
+            raw_max = tf.sparse_reduce_max(sparse_tensor, axis=axis, keep_dims=keep_dims)
 
-        # Subtract my_max
-        exp_values = tf.exp(sparse_full - my_max)
+            # Reshape to regain shape info for raw_max
+            reduced_shape = dense_shape.copy()
+            for ax in axis:
+                reduced_shape[ax] = 1
+            raw_max = tf.reshape(raw_max, reduced_shape)
+
+            conditional = tf.where(tf.is_finite(raw_max), raw_max, tf.zeros_like(raw_max))
+            my_max = tf.stop_gradient(conditional)
+
+            # Exp
+            # Convert sparse_tensor to full so that we can subtract my_max
+            dense_tensor = tf.sparse_tensor_to_dense(sparse_tensor, validate_indices=False)
+
+            # Rehape sparse_full to regain shape info
+            dense_tensor = tf.reshape(dense_tensor, dense_shape)
+
+            # Subtract my_max
+            exp_values = tf.exp(dense_tensor - my_max)
 
         # Extract only required values from exp_values (according to sparse_tensor.indices)
         new_dense_shape = tf.reduce_prod(sparse_tensor.dense_shape, keep_dims=True)

@@ -243,6 +243,7 @@ class CapsNetEMModel(BaseModel):
                           options=tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE), run_metadata=run_metadata)
 
         profileOptionBuilder = tf.profiler.ProfileOptionBuilder
-        opts = profileOptionBuilder(profileOptionBuilder.time_and_memory()).order_by('micros').build()
+        outfile = self.result_dir + '/profile.pb.gz'
+        opts = profileOptionBuilder(profileOptionBuilder.time_and_memory()).with_step(0).with_timeline_output(outfile).build()
 
         tf.profiler.profile(self.graph, run_meta=run_metadata, cmd='code', options=opts)

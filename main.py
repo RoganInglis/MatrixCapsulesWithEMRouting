@@ -86,7 +86,7 @@ flags.DEFINE_integer('margin_decay_steps', 4000, 'Number of training steps over 
 # Training configuration
 flags.DEFINE_boolean('infer', False, 'Load model for inference')
 flags.DEFINE_boolean('debug', False, 'Debug mode')
-flags.DEFINE_boolean('profile', True, 'Run model and profile time and memory usage')
+flags.DEFINE_boolean('profile', False, 'Run model and profile time and memory usage')
 flags.DEFINE_boolean('full_summaries', False, 'Whether to add extensive tensorboard summaries')
 flags.DEFINE_integer('max_iter', 1000000, 'Max number of training iterations')
 flags.DEFINE_integer('max_train_epochs', 1000, 'Max number of training epochs')
