@@ -131,7 +131,8 @@ class CapsNetEMModel(BaseModel):
                 self.summaries['accuracy'] = tf.summary.scalar('accuracy', self.accuracy)
             self.summaries['loss'] = tf.summary.scalar('loss', self.loss)
 
-            tf.summary.histogram('primarycaps_activation', primarycaps_activation)
+            if self.summaries:
+                tf.summary.histogram('primarycaps_activation', primarycaps_activation)
 
             # Add gradient summaries
             """

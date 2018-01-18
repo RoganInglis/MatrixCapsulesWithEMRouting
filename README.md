@@ -79,8 +79,7 @@ batch size and learning rate.
 
 **_Padding_**
 
-The paper seems to imply 'SAME' padding for convolutional layers given that the bottom of section 4 suggests that corner
-capsules will only receive "one feedback per capsule type", although this is not explicitly mentioned.
+Padding doesnt seem to be mentioned in the paper.
 
 **_Sum over capsules in the E-step_**
 
