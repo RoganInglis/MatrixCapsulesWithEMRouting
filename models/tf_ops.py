@@ -8,10 +8,10 @@ from models import utils
 # TODO - sort out interchangeable use of 'size' and 'shape'; change to 'shape'
 # TODO - make sure use of dense_shape, full_shape and patches_shape is consistent
 # Define eps - small constant for safe division/log
-div_small_eps = 1e-9
-div_zero_eps = 1e-9
-div_big_eps = 1e9
-log_eps = 1e-9
+div_small_eps = 1e-12
+div_zero_eps = 1e-12
+div_big_eps = 1e12
+log_eps = 1e-12
 
 
 def safe_divide(x, y, name=None):
@@ -541,15 +541,21 @@ def get_dense_indices(patch_shape, in_size, strides, rates, padding, name=None):
 
         in_rows, in_cols = in_size
 
-        k_dash = [kernel_rows + (kernel_rows - 1) * (rates[1] - 1), kernel_cols + (kernel_cols - 1) * (rates[2] - 1)]
+        # Compute padding
+        k_dash = [kernel_rows + (kernel_rows - 1) * (rates[1] - 1),
+                  kernel_cols + (kernel_cols - 1) * (rates[2] - 1)]
         if padding is 'VALID':
-            p_rows = 0
-            p_cols = 0
+            p_rows = (out_rows - 1) * strides[1] + k_dash[0] - in_rows
+            p_cols = (out_cols - 1) * strides[2] + k_dash[1] - in_cols
+        elif padding is 'SAME':
+            p_rows = ((out_rows - 1) * strides[1] + k_dash[0] - in_rows) // 2
+            p_cols = ((out_cols - 1) * strides[2] + k_dash[1] - in_cols) // 2
         else:
-            # TODO - padding computation (and potentially patch placement below) needs to mirror tf.extract_image_patches, in which there are some subtleties; check here: https://github.com/RLovelett/eigen/blob/ebc657d1bc26aebd77ac9ecc817def4d92120b77/unsupported/Eigen/CXX11/src/Tensor/TensorImagePatch.h#L151 for original code and transcribe here
-            p_rows = math.floor((k_dash[0] - 1) / 2)
-            p_cols = math.floor((k_dash[1] - 1) / 2)
+            raise ValueError('Unexpected padding')
+        p_rows, p_cols = max(0, p_rows), max(0, p_cols)
 
+        # check https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/ops/array_grad.py#L575 for
+        # implementation of extract_image_patches gradient where then have to do the inverse as here
         indices = []
         # Construct for first batch element, out capsule, capsule dim 1 and capsule dim 2
         # TODO - can speed this up by taking in_capsules out of the loop and combining later
@@ -564,13 +570,19 @@ def get_dense_indices(patch_shape, in_size, strides, rates, padding, name=None):
                             # array should be zeros anyway.
                             # If padding is on top/left we need to switch it to the bottom/right by adding k_dash to the index
                             # If padding is on the bottom/right, need to switch it to the top/left by subtracting k_dash from index
-                            row = i_o * strides[1] + i_k * rates[1] - p_rows
+                            row_steps = i_o * strides[1]
+                            col_steps = j_o * strides[2]
+
+                            r_low, c_low = row_steps - p_rows, col_steps - p_cols
+
+                            row = r_low + i_k * rates[1]
+                            col = c_low + j_k * rates[2]
+
                             if row < 0:
                                 row = row + k_dash[0]
                             elif row > in_rows - 1:
                                 row = row - k_dash[0]
 
-                            col = j_o * strides[2] + j_k * rates[2] - p_cols
                             if col < 0:
                                 col = col + k_dash[1]
                             elif col > in_cols - 1:
@@ -591,7 +603,8 @@ def get_dense_indices(patch_shape, in_size, strides, rates, padding, name=None):
         out_capsules_indices = repeat(tf.range(out_capsules), capsule_dim2 * capsule_dim1)
 
         # Concatenate the indices just computed and tile over the previously computed indices
-        extra_indices = tf.transpose(tf.stack([out_capsules_indices, capsule_dim1_indices, capsule_dim2_indices], axis=0))
+        extra_indices = tf.transpose(
+            tf.stack([out_capsules_indices, capsule_dim1_indices, capsule_dim2_indices], axis=0))
         extra_indices = tf.tile(extra_indices, [kernel_rows * kernel_cols * in_capsules * out_rows * out_cols, 1])
 
         # Concatenate the two sets of indices
@@ -600,8 +613,9 @@ def get_dense_indices(patch_shape, in_size, strides, rates, padding, name=None):
         indices_per_batch = kernel_rows * kernel_cols * in_capsules * out_rows * out_cols * out_capsules * capsule_dim1 * capsule_dim2
 
         # Extend indices over batch - Should be done within the graph so we can use variable batch size
-        batch_indices = tf.cast(tf.reshape(tf.tile(tf.expand_dims(tf.range(batch_size), axis=1), [1, indices_per_batch]),
-                                           [batch_size * indices_per_batch, 1]), dtype=tf.int64)
+        batch_indices = tf.cast(
+            tf.reshape(tf.tile(tf.expand_dims(tf.range(batch_size), axis=1), [1, indices_per_batch]),
+                       [batch_size * indices_per_batch, 1]), dtype=tf.int64)
         indices = tf.concat([batch_indices, tf.tile(indices, [batch_size, 1])], axis=1)
 
         return indices

@@ -375,6 +375,245 @@ def sparse_reduce_sum_nd_test():
     test_out(condition, 'sparse_reduce_sum_nd_test')
 
 
+def idx_loop_test():
+    strides = [1, 2, 2, 1]
+    out_rows = 5
+    out_cols = 5
+    p_rows = 1
+    p_cols = 1
+    row_steps = range(0, out_rows * strides[1], strides[1])
+    col_steps = range(0, out_cols * strides[2], strides[2])
+    k_dash = [3, 3]
+    kernel_rows = 3
+    kernel_cols = 3
+    rates = [1, 1, 1, 1]
+    in_rows = 9
+    in_cols = 9
+
+    idx = []
+    for i_o in range(out_rows):
+        for j_o in range(out_cols):
+            r_low, c_low = row_steps[i_o] - p_rows, col_steps[j_o] - p_cols
+            r_high, c_high = r_low + k_dash[0], c_low + k_dash[1]
+
+            idx.extend([(r * in_cols + c,
+                         i_o * (out_cols * kernel_rows * kernel_cols) +
+                         j_o * (kernel_rows * kernel_cols) +
+                         ri * kernel_cols + ci)
+                        for (ri, r) in enumerate(range(r_low, r_high, rates[1]))
+                        for (ci, c) in enumerate(range(c_low, c_high, rates[2]))
+                        if 0 <= r and r < in_rows and 0 <= c and c < in_cols
+                        ])
+
+    idx1 = []
+    for i_o in range(out_rows):
+        for j_o in range(out_cols):
+            r_low, c_low = row_steps[i_o] - p_rows, col_steps[j_o] - p_cols
+            r_high, c_high = r_low + k_dash[0], c_low + k_dash[1]
+            for (ri, r) in enumerate(range(r_low, r_high, rates[1])):
+                for (ci, c) in enumerate(range(c_low, c_high, rates[2])):
+                    if ((0 <= r) and (r < in_rows) and (0 <= c) and (c < in_cols)):
+                        idx1.extend([(r * in_cols + c,
+                                      i_o * (out_cols * kernel_rows * kernel_cols) + j_o * (kernel_rows * kernel_cols) + ri * kernel_cols + ci)])
+
+    test_out(np.all(np.equal(idx, idx1)), 'idx_loop_test')
+
+
+def idx_loop_test_2():
+    strides = [1, 2, 2, 1]
+    out_rows = 5
+    out_cols = 5
+    p_rows = 1
+    p_cols = 1
+    row_steps = range(0, out_rows * strides[1], strides[1])
+    col_steps = range(0, out_cols * strides[2], strides[2])
+    k_dash = [3, 3]
+    kernel_rows = 3
+    kernel_cols = 3
+    rates = [1, 1, 1, 1]
+    in_rows = 9
+    in_cols = 9
+
+    idx = []
+    for i_o in range(out_rows):
+        for j_o in range(out_cols):
+            r_low, c_low = row_steps[i_o] - p_rows, col_steps[j_o] - p_cols
+            r_high, c_high = r_low + k_dash[0], c_low + k_dash[1]
+            for (ri, r) in enumerate(range(r_low, r_high, rates[1])):
+                for (ci, c) in enumerate(range(c_low, c_high, rates[2])):
+                    if ((0 <= r) and (r < in_rows) and (0 <= c) and (c < in_cols)):
+                        idx.extend([(r * in_cols + c,
+                                     i_o * (out_cols * kernel_rows * kernel_cols) + j_o * (kernel_rows * kernel_cols) + ri * kernel_cols + ci)])
+
+    # output [in_rows * in_cols, out_rows * out_cols * kernel_rows * kernel_cols]
+
+    idx1 = []
+    for i_o in range(out_rows):
+        for j_o in range(out_cols):
+            r_low, c_low = row_steps[i_o] - p_rows, col_steps[j_o] - p_cols
+            r_high, c_high = r_low + k_dash[0], c_low + k_dash[1]
+            for (ri, r) in enumerate(range(r_low, r_high, rates[1])):
+                for (ci, c) in enumerate(range(c_low, c_high, rates[2])):
+                    if ((0 <= r) and (r < in_rows) and (0 <= c) and (c < in_cols)):
+                        idx1.extend([(r, c,
+                                      i_o * (out_cols * kernel_rows * kernel_cols) + j_o * (kernel_rows * kernel_cols) + ri * kernel_cols + ci)])
+
+    # output [in_rows, in_cols, out_rows * out_cols * kernel_rows * kernel_cols]
+
+    idx2 = []
+    patch_indices = []
+    for i_o in range(out_rows):
+        for j_o in range(out_cols):
+            r_low, c_low = row_steps[i_o] - p_rows, col_steps[j_o] - p_cols
+            r_high, c_high = r_low + k_dash[0], c_low + k_dash[1]
+            for (ri, r) in enumerate(range(r_low, r_high, rates[1])):
+                for (ci, c) in enumerate(range(c_low, c_high, rates[2])):
+                    if ((0 <= r) and (r < in_rows) and (0 <= c) and (c < in_cols)):
+                        idx2.extend([(r, c, i_o, j_o, ri, ci)])
+                        patch_indices.extend([(r, c, i_o, j_o)])
+
+                        # output [in_rows, in_cols, out_rows, out_cols, kernel_rows, kernel_cols]
+
+    array = np.zeros([in_rows, in_cols, out_rows, out_cols])
+
+    for index in patch_indices:
+        array[index] = 1.
+
+    for i in range(out_rows):
+        for j in range(out_cols):
+            print(np.squeeze(array[:, :, i, j]))
+
+    print('test')
+
+
+def loop_test():
+    idx1 = []
+    for i in range(10):
+        for j in range(5):
+            idx1.append([i, j])
+
+    idx2 = []
+    for j in range(5):
+        for i in range(10):
+            idx2.insert(0, [i, j])
+
+    condition = np.all(np.equal(idx1, idx2))
+    test_out(condition, 'loop_test')
+
+
+def steps_test():
+    strides = [1, 2, 2, 1]
+    out_rows = 5
+    row_steps = range(0, out_rows * strides[1], strides[1])
+
+    row_steps_l = []
+    for i in range(out_rows):
+        row_steps_l.append(i*strides[1])
+
+    condition = np.all(np.equal(list(row_steps), row_steps_l))
+    test_out(condition, 'steps_test')
+
+
+def loop_test_2():
+    strides = [1, 2, 2, 1]
+    out_rows = 5
+    out_cols = 5
+    p_rows = 1
+    p_cols = 1
+    k_dash = [3, 3]
+    kernel_rows = 3
+    kernel_cols = 3
+    rates = [1, 1, 1, 1]
+    in_rows = 9
+    in_cols = 9
+
+    patch_indices = []
+    for i_o in range(out_rows):
+        for j_o in range(out_cols):
+            # TODO - work out what this is doing exactly
+            row_steps = i_o * strides[1]
+            col_steps = j_o * strides[2]
+
+            r_low, c_low = row_steps - p_rows, col_steps - p_cols
+            r_high, c_high = r_low + k_dash[0], c_low + k_dash[1]
+            for row in range(r_low, r_high, rates[1]):  # TODO - this spans kernel_rows (i.e. the enumeration is the kernel row)
+                for col in range(c_low, c_high, rates[2]):  # TODO - this spans kernel_cols (i.e. the enumeration is the kernel col)
+                    if row < 0:
+                        row = row + k_dash[0]
+                    elif row > in_rows - 1:
+                        row = row - k_dash[0]
+
+                    if col < 0:
+                        col = col + k_dash[1]
+                    elif col > in_cols - 1:
+                        col = col - k_dash[1]
+
+                    patch_indices.extend(np.array([row, col, i_o, j_o]))
+
+    patch_indices1 = []
+    for i_o in range(out_rows):
+        for j_o in range(out_cols):
+            # TODO - work out what this is doing exactly
+            row_steps = i_o * strides[1]
+            col_steps = j_o * strides[2]
+
+            r_low, c_low = row_steps - p_rows, col_steps - p_cols
+            for i_k in range(kernel_rows):
+                for j_k in range(kernel_cols):
+                    row = r_low + i_k * rates[1]
+                    col = c_low + j_k * rates[2]
+
+                    if row < 0:
+                        row = row + k_dash[0]
+                    elif row > in_rows - 1:
+                        row = row - k_dash[0]
+
+                    if col < 0:
+                        col = col + k_dash[1]
+                    elif col > in_cols - 1:
+                        col = col - k_dash[1]
+
+                    patch_indices1.extend(np.array([row, col, i_o, j_o]))
+
+    condition = np.all(np.equal(patch_indices, patch_indices1))
+    test_out(condition, 'loop_test_2')
+
+
+def get_dense_indices_test():
+    batch_size = 1
+    in_rows = 7
+    in_cols = 7
+    in_capsules = 1
+    kernel_rows = 3
+    kernel_cols = 3
+    ksizes = [1, kernel_rows, kernel_cols, 1]
+    rates = [1, 1, 1, 1]
+    strides = [1, 2, 2, 1]
+    padding = 'SAME'
+    # First need to create image tensor with shape [batch_size, in_rows, in_cols, in_capsules]
+    in_shape = [batch_size, in_rows, in_cols, in_capsules]
+    np_image = np.random.randint(1, 9, size=in_shape)
+    image = tf.constant(np_image)
+
+    # Then do extract_image_patches to get tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, ...]
+    patches = tf_ops.extract_image_patches_nd(image, ksizes, strides, rates, padding)
+
+    # Then go patches to full to get tensor with shape [batch_size, in_rows, in_cols, in_capsules, out_rows, out_cols, ...]
+    patches = tf_ops.expand_dims_nd(patches, axis=[6, 7, 8])
+    full = tf_ops.patches_to_full(patches, strides, rates, padding, in_size=[in_rows, in_cols])
+
+    # Print original image and also each padded patch array so they can be visually compared
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+        full_np = sess.run(full)
+
+    print(np.squeeze(np_image))
+    full_shape = full_np.shape
+    for i in range(full_shape[4]):
+        for j in range(full_shape[5]):
+            print(np.squeeze(full_np[:, :, :, :, i, j, :, :, :]))
+
+
 if __name__ == '__main__':
     #extract_image_patches_nd_test()
     #expand_dims_nd_v_reshape_speed_test()
@@ -390,4 +629,10 @@ if __name__ == '__main__':
     #indices_reshape_test()
     #sparse_get_dims_test()
     #permute_gather_test()
-    sparse_reduce_sum_nd_test()
+    #sparse_reduce_sum_nd_test()
+    #idx_loop_test()
+    #idx_loop_test_2()
+    #loop_test()
+    #steps_test()
+    #loop_test_2()
+    get_dense_indices_test()
