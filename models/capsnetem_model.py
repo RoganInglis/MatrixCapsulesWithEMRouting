@@ -109,11 +109,11 @@ class CapsNetEMModel(BaseModel):
             primarycaps_pose, primarycaps_activation = primarycaps_layer(relu_conv1_out, **self.primarycaps_params)
 
             # Create ConvCaps1 layer
-            #convcaps1_pose, convcaps1_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps1_params)
+            convcaps1_pose, convcaps1_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps1_params)
 
             # Create ConvCaps2 layer
-            #convcaps2_pose, convcaps2_activation = convcaps_layer(convcaps1_pose, convcaps1_activation, **self.convcaps2_params)
-            convcaps2_pose, convcaps2_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps2_params)
+            convcaps2_pose, convcaps2_activation = convcaps_layer(convcaps1_pose, convcaps1_activation, **self.convcaps2_params)
+            #convcaps2_pose, convcaps2_activation = convcaps_layer(primarycaps_pose, primarycaps_activation, **self.convcaps2_params)
 
             # Create Class Capsules layer
             classcaps_pose, classcaps_activation = classcaps_layer(convcaps2_pose, convcaps2_activation, **self.classcaps_params)

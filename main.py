@@ -28,9 +28,9 @@ flags.DEFINE_string('fixed_params', "{}", 'JSON inputs to fix some params in a H
 # Model configuration
 flags.DEFINE_string('model_name', 'CapsNetEMModel', 'Unique name of the model')
 flags.DEFINE_boolean('best', False, 'Force to use the best known configuration')
-flags.DEFINE_float('learning_rate', 5e-3, 'The learning rate of SGD')
+flags.DEFINE_float('learning_rate', 1e-2, 'The learning rate of SGD')
 flags.DEFINE_bool('learning_rate_decay', True, 'Whether to decay the learning rate during training')
-flags.DEFINE_float('final_learning_rate', 1e-4, 'The final decayed learning rate of SGD')
+flags.DEFINE_float('final_learning_rate', 5e-4, 'The final decayed learning rate of SGD')
 flags.DEFINE_float('learning_rate_decay_steps', 1200, 'Number of steps over which to decay the learning rate')
 flags.DEFINE_float('drop_keep_prob', 1.0, 'The dropout keep probability')
 flags.DEFINE_float('l2', 0.0, 'L2 regularisation strength')
@@ -42,18 +42,18 @@ flags.DEFINE_integer('n_classes', 10, 'Number of image classes')  # TODO - shoul
 
 # ReLU Conv1
 flags.DEFINE_integer('relu_conv1_kernel_size', 5, 'Kernel size for the first ReLu conv layer')
-flags.DEFINE_integer('relu_conv1_filters', 32, 'Number of filters for the first ReLu conv layer')  # TODO - return to 32
+flags.DEFINE_integer('relu_conv1_filters', 32, 'Number of filters for the first ReLu conv layer')
 flags.DEFINE_integer('relu_conv1_stride', 2, 'Strides for convolution in the first ReLu conv layer')
 
 # PrimaryCaps
-flags.DEFINE_integer('primarycaps_out_capsules', 16, 'Number of primary capsules')  # TODO - return to 32
+flags.DEFINE_integer('primarycaps_out_capsules', 32, 'Number of primary capsules')
 flags.DEFINE_integer('pose_size', 4, 'Size of the pose matrices')
 
 # ConvCaps1
-flags.DEFINE_integer('convcaps1_out_capsules', 16, 'Number of capsules for the first conv capsule layer')  # TODO - return to 32
+flags.DEFINE_integer('convcaps1_out_capsules', 32, 'Number of capsules for the first conv capsule layer')
 flags.DEFINE_integer('convcaps1_kernel_size', 3, 'Kernel size for the first conv caps layer')
-flags.DEFINE_integer('convcaps1_strides', 1, 'Strides for convolution in the first conv caps layer')  # TODO - change back to 2 when strides > 1 are working correctly
-flags.DEFINE_string('convcaps1_padding', 'VALID', 'SAME or VALID padding for the first conv capsule layer')  # TODO - should be SAME when same padding is working correctly
+flags.DEFINE_integer('convcaps1_strides', 2, 'Strides for convolution in the first conv caps layer')
+flags.DEFINE_string('convcaps1_padding', 'VALID', 'SAME or VALID padding for the first conv capsule layer')
 flags.DEFINE_integer('convcaps1_n_routing_iterations', 3, 'Number of routing iterations for the first conv caps layer')
 flags.DEFINE_float('convcaps1_init_beta_v', 0., 'Initial beta_v value for the first conv caps layer')
 flags.DEFINE_float('convcaps1_init_beta_a', 0., 'Initial beta_a value for the first conv caps layer')
@@ -61,10 +61,10 @@ flags.DEFINE_float('convcaps1_init_inverse_temp', 0.03, 'Initial inverse tempera
 flags.DEFINE_float('convcaps1_final_inverse_temp', 0.1, 'Final inverse temperature value for the first conv caps layer')
 
 # ConvCaps2
-flags.DEFINE_integer('convcaps2_out_capsules', 16, 'Number of capsules for the second conv capsule layer')  # TODO - return to 32
+flags.DEFINE_integer('convcaps2_out_capsules', 32, 'Number of capsules for the second conv capsule layer')
 flags.DEFINE_integer('convcaps2_kernel_size', 3, 'Kernel size for the second conv caps layer')
 flags.DEFINE_integer('convcaps2_strides', 1, 'Strides for convolution in the second conv caps layer')
-flags.DEFINE_string('convcaps2_padding', 'VALID', 'SAME or VALID padding for the second conv capsule layer')  # TODO - should be SAME when same padding is working correctly
+flags.DEFINE_string('convcaps2_padding', 'VALID', 'SAME or VALID padding for the second conv capsule layer')
 flags.DEFINE_integer('convcaps2_n_routing_iterations', 3, 'Number of routing iterations for the second conv caps layer')
 flags.DEFINE_float('convcaps2_init_beta_v', 0., 'Initial beta_v value for the second conv caps layer')
 flags.DEFINE_float('convcaps2_init_beta_a', 0., 'Initial beta_a value for the second conv caps layer')
@@ -99,10 +99,10 @@ flags.DEFINE_integer('validation_summary_every', 5, 'Iteration interval at which
 # This is very important for TensorBoard
 # each model will end up in its own unique folder using time module
 # Obviously one can also choose to name the output folder
-flags.DEFINE_string('result_dir', project_dir + '/results/' + flags.FLAGS.model_name + '/' +
+flags.DEFINE_string('result_dir', './results/' + flags.FLAGS.model_name + '/' +
                     str(int(time.time())),
                     'Name of the directory to store/log the model (if it exists, the model will be loaded from it)')
-flags.DEFINE_string('validation_result_dir', project_dir + '/results/' + flags.FLAGS.model_name + '/' +
+flags.DEFINE_string('validation_result_dir', './results/' + flags.FLAGS.model_name + '/' +
                     str(int(time.time())) + '/validation',
                     'Name of the directory to store/log the model test results (for TensorBoard)')
 

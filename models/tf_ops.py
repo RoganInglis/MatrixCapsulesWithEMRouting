@@ -376,6 +376,52 @@ def patches_to_sparse(input_tensor, strides, rates=(1, 1, 1, 1), padding='SAME',
         return sparse_patches
 
 
+def fast_patches_to_sparse(input_tensor, dense_indices, shape_list, strides, rates=(1, 1, 1, 1), padding='SAME', in_size=None, name=None):
+    """
+    Convert a dense tensor containing image patches to a sparse tensor for which the image patches retain their original
+    indices. Compared to patches_to_sparse, fast_patches_to_sparse takes the dense_indices and shape_list as additional
+    inputs so that repeated calls to the function for the same shapes does not do repeated computation
+    :param input_tensor: Tensor with shape [batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, 1, 1]
+    :param dense_indices:
+    :param shape_list:
+    :param strides:
+    :param rates:
+    :param padding:
+    :param in_size:
+    :param name: Name for the op
+    :return: sparse_patches: SparseTensor with shape [batch_size, im_rows, im_cols, ...]
+    """
+    if name is None:
+        scope_name = 'fast_patches_to_sparse'
+    else:
+        scope_name = name
+    with tf.variable_scope(scope_name):
+        # Get required shapes
+        batch_size, kernel_rows, kernel_cols, in_capsules, out_rows, out_cols, out_capsules, capsule_dim1, capsule_dim2 = shape_list
+
+        # Compute input shape
+        if in_size is None:
+            in_rows, in_cols = utils.conv_in_size([out_rows, out_cols], [kernel_rows, kernel_cols], list(strides[1:3]),
+                                            list(rates[1:3]), padding)
+        else:
+            in_rows, in_cols = in_size
+
+        # Reshape input_tensor to 1D
+        flat_shape = [batch_size*kernel_rows*kernel_cols*in_capsules*out_rows*out_cols*out_capsules*capsule_dim1*capsule_dim2]
+        values = tf.reshape(input_tensor, shape=flat_shape)
+
+        # Create constant tensor containing dense shape
+        # TODO - might be a better way to do this but this works. Might also be able to pass the dense_shape in so these lines don't have to be recomputed, although tf.SparseTensor does require this in a specific format
+        dense_shape = tf.shape(input_tensor, out_type=tf.int64)
+        dense_shape = tf.add(dense_shape,
+                             tf.constant([0, in_rows - kernel_rows, in_cols - kernel_cols, 0, 0, 0, 0, 0, 0],
+                                         dtype=tf.int64))
+
+        # Create sparse tensor
+        sparse_patches = tf.SparseTensor(dense_indices, values, dense_shape)
+        return sparse_patches
+
+
 def patches_to_full(input_tensor, strides, rates=(1, 1, 1, 1), padding='SAME', in_size=None, name=None):
     """
     Converts a tensor of image patches to a full tensor in which the image patches are embedded within an array of zeros
@@ -407,14 +453,43 @@ def patches_to_full(input_tensor, strides, rates=(1, 1, 1, 1), padding='SAME', i
         return dense_patches
 
 
-def full_to_patches(full_tensor, indices, dense_shape, name=None):
+def sparse_patches_to_full(sparse_tensor, full_shape, strides, rates=(1, 1, 1, 1), padding='SAME', in_size=None, name=None):
+    """
+    Converts a sparse tensor of image patches to a full tensor in which the image patches are embedded within an array of zeros
+    with the same shape as the original image
+    :param sparse_tensor: SparseTensor containing image patches with shape [batch_size, in_rows, in_cols, in_capsules,
+                         out_rows, out_cols, out_capsules, ?, ?]
+    :param full_shape:
+    :param strides:
+    :param rates:
+    :param padding:
+    :param in_size:
+    :param name:
+    :return:
+    """
+    if name is None:
+        scope_name = 'sparse_patches_to_full'
+    else:
+        scope_name = name
+    with tf.variable_scope(scope_name):
+        # Then convert sparse to dense
+        dense_patches = tf.sparse_tensor_to_dense(sparse_tensor, validate_indices=False)
+
+        # This seems to lose the shape so reset shape
+        #full_shape = get_patches_full_shape(input_tensor, strides, rates, padding, in_size=in_size)
+        dense_patches = tf.reshape(dense_patches, full_shape)
+
+        return dense_patches
+
+
+def full_to_patches(full_tensor, indices, patches_shape, name=None):
     """
     Converts a full tensor of patches (i.e. with patches in their original position with the rest of the image padded
     with zeros and each patch image indexed by separate dimension(s))
     Assumes dim 0 is batch size and dims 1 & 2 are the patch/kernel dims
     :param full_tensor: Full tensor containing patches padded to full size and indexed by separate dimension(s)
     :param indices: Indices of the patches within the full tensor
-    :param dense_shape: Shape of the resulting dense patches tensor (not the same as dense_shape for sparse tensors)
+    :param patches_shape: Shape of the resulting dense patches tensor
     :param name: Name for the op
     :return: patches_tensor: Tensor containing only patches, not padded to full size
     """
@@ -424,7 +499,7 @@ def full_to_patches(full_tensor, indices, dense_shape, name=None):
         scope_name = name
     with tf.variable_scope(scope_name):
         # TODO - This is a hacky way to do this, only need to because of the 5D limit of gather_nd. If this limit is raised to 9 or higher then we can remove everything here before the 'Extract patches' comment
-        values = tf.zeros(dense_shape)
+        values = tf.zeros(patches_shape)
         full_shape = get_shape_list(full_tensor)
         sparse_tensor = tf.SparseTensor(indices, tf.reshape(values, [-1]), tf.shape(full_tensor, out_type=tf.int64))
 
@@ -444,7 +519,7 @@ def full_to_patches(full_tensor, indices, dense_shape, name=None):
         patches_tensor = tf.gather_nd(full_tensor, indices)
 
         # Reshape
-        patches_tensor = tf.reshape(patches_tensor, dense_shape)
+        patches_tensor = tf.reshape(patches_tensor, patches_shape)
 
         return patches_tensor
 
@@ -513,6 +588,37 @@ def get_patches_full_shape(patches_tensor, strides, rates=(1, 1, 1, 1), padding=
         out_size = shape[4:6]
         out_capsules = shape[6]
         remaining_dims = shape[7:]
+
+        if in_size is None:
+            in_size = utils.conv_in_size(out_size, kernel_size, strides[1:3], rates[1:3], padding)
+
+        full_shape = [batch_size, *in_size, in_capsules, *out_size, out_capsules, *remaining_dims]
+
+        return full_shape
+
+
+def fast_get_patches_full_shape(patches_shape, strides, rates=(1, 1, 1, 1), padding='SAME', in_size=None, name=None):
+    """
+    Get the eqivalent full shape for a tensor containing image patches from the patches shape
+    :param patches_shape:
+    :param strides:
+    :param rates:
+    :param padding:
+    :param in_size:
+    :param name:
+    :return:
+    """
+    if name is None:
+        scope_name = 'fast_get_patches_full_shape'
+    else:
+        scope_name = name
+    with tf.variable_scope(scope_name):
+        batch_size = patches_shape[0]
+        kernel_size = patches_shape[1:3]
+        in_capsules = patches_shape[3]
+        out_size = patches_shape[4:6]
+        out_capsules = patches_shape[6]
+        remaining_dims = patches_shape[7:]
 
         if in_size is None:
             in_size = utils.conv_in_size(out_size, kernel_size, strides[1:3], rates[1:3], padding)

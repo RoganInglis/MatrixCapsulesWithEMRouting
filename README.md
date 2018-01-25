@@ -133,7 +133,6 @@ Future implementations of capsule networks would definitely benefit from new cap
 
 ### TODO
 
-- [ ] Get convolutional capsule layers working for strides > 1
 - [ ] Test convolutional capsule layers with padding 'SAME'
 - [ ] Get working with SmallNORB dataset
 - [ ] Sort out license

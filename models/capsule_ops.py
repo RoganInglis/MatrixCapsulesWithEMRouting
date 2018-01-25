@@ -214,7 +214,7 @@ def m_step(r, in_activation, in_vote, beta_v, beta_a, inverse_temp, conv=False, 
             tf.summary.image('activation', tf.squeeze(activation, axis=[1, 2, 3, 4, 8]), max_outputs=1)
         else:
             tf.summary.image('activation', tf.expand_dims(tf.squeeze(activation, axis=[1, 2, 3, 7, 8])[:, :, :, 0], 3),
-                             max_outputs=1)
+                             max_outputs=1)  # TODO - should unstack/concatenate so that we can display the activations of all capsules at once
 
         return mean, variance, activation
 
@@ -233,6 +233,8 @@ def e_step(mean, variance, activation, in_vote, logspace=True, summaries=False, 
     """
     with tf.variable_scope('e_step'):
         if logspace:
+            # TODO - room for optimisation here. There are two identical (I think) calls to patches to sparse, within reduce_logsumexpsparse and within patches_to_full. These also each contain calls of get_dense_indices, which is also called direct within this function; are these all identical calls and if so can we use only one? (even if it makes the code a little bit messier). There are also what look like multiple calls to code to get the shape of tensors with the same shape?
+            # TODO - should pass in result of get_
             # Compute log(P): the log probability of each in_vote (data point)
             a = tf_ops.safe_log(2*math.pi*variance, name='safe_log_a')  # [batch_size, 1, 1, 1, out_rows, out_cols, out_capsules, pose_size, pose_size]
             b = tf_ops.safe_divide(tf.square(tf.subtract(in_vote, mean, name='b_sub'), name='vote_mean_square'),
@@ -247,25 +249,28 @@ def e_step(mean, variance, activation, in_vote, logspace=True, summaries=False, 
             log_p_activation = tf_ops.safe_log(activation) + log_p
 
             if sparse_args['sparse']:
-                log_p_activation_sum = tf_ops.reduce_logsumexpsparse(log_p_activation, sparse_args['strides'],
-                                                                     sparse_args['rates'], sparse_args['padding'],
-                                                                     sparse_args['in_size'], axis=[4, 5, 6],
-                                                                     keep_dims=True)
+                # Get dense_indices and dense_shape
+                patches_shape = sparse_args['patches_shape']
+                dense_shape = sparse_args['dense_shape']
+                dense_indices = sparse_args['dense_indices']
 
-                # Get patch size and dense shape for conversion back to dense patches later
-                dense_shape = tf_ops.get_shape_list(log_p_activation)
+                # Convert log_p_activation to sparse
+                sparse_log_p_activation = tf_ops.fast_patches_to_sparse(log_p_activation, dense_indices, patches_shape,
+                                                                        sparse_args['strides'], sparse_args['rates'],
+                                                                        sparse_args['padding'], sparse_args['in_size'])
+
+                log_p_activation_sum = tf_ops.sparse_reduce_logsumexp(sparse_log_p_activation, dense_shape,
+                                                                      axis=[4, 5, 6], keep_dims=True)
 
                 # Convert log_p_activation to full for compatibility with log_p_activation_sum
-                log_p_activation = tf_ops.patches_to_full(log_p_activation, sparse_args['strides'], sparse_args['rates'],
-                                                          sparse_args['padding'], sparse_args['in_size'])
+                log_p_activation = tf.sparse_tensor_to_dense(sparse_log_p_activation, validate_indices=False)
+                log_p_activation = tf.reshape(log_p_activation, dense_shape)
 
                 # Compute new r
                 r = tf.exp(log_p_activation - log_p_activation_sum)
 
                 # Convert r back to patches (since activation_p is patches this is valid)
-                indices = tf_ops.get_dense_indices(dense_shape, sparse_args['in_size'], sparse_args['strides'],
-                                                   sparse_args['rates'], sparse_args['padding'])  # TODO - should be more efficient to pass the indices out from reduce_logsumexpsparse (or pass indices to reduce_logsumexpsparse) as they are already in there (although this makes the reduce_logsumexpsparse function less general)
-                r = tf_ops.full_to_patches(r, indices, dense_shape)
+                r = tf_ops.full_to_patches(r, dense_indices, patches_shape)
             else:
                 log_p_activation_sum = tf.reduce_logsumexp(log_p_activation, axis=[4, 5, 6], keep_dims=True)
 
@@ -307,7 +312,7 @@ def e_step(mean, variance, activation, in_vote, logspace=True, summaries=False, 
 
                 # Convert r back to patches (since activation_p is patches this is valid)
                 indices = tf_ops.get_dense_indices(dense_shape, sparse_args['in_size'], sparse_args['strides'],
-                                                   sparse_args['rates'], sparse_args['padding'])  # TODO - should be more efficient to pass the indices out from reduce_sumsparse (or pass indices to reduce_sumsparse) as they are already in there (although this makes the reduce_sumsparse function less general)
+                                                   sparse_args['rates'], sparse_args['padding'])  # TODO - refactor as for logspace version to use passed in indices etc.
                 r = tf_ops.full_to_patches(r, indices, dense_shape)
 
             else:
@@ -357,8 +362,8 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_beta_v=1., i
     """
     with tf.variable_scope('em_routing'):
         # Get required shapes
-        batch_size = tf.shape(in_vote)[0]
-        shape_list = in_vote.get_shape().as_list()
+        shape_list = tf_ops.get_shape_list(in_vote)
+        batch_size = shape_list[0]
         if conv:
             kernel_size = ksizes[1:3]
         else:
@@ -369,7 +374,8 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_beta_v=1., i
 
         # Create R constant and initialise as uniform probability (stores the probability of each vote under each
         # Gaussian with mean corresponding to output pose)
-        r = tf.divide(tf.ones([batch_size, *kernel_size, in_capsules, *out_size, out_capsules, 1, 1], name="R"),
+        patches_shape = [batch_size, *kernel_size, in_capsules, *out_size, out_capsules, 1, 1]
+        r = tf.divide(tf.ones(patches_shape, name="R"),
                       np.prod(out_size) * out_capsules)
 
         # Create beta parameters
@@ -390,56 +396,28 @@ def em_routing(in_vote, in_activation, n_routing_iterations=3, init_beta_v=1., i
         If we are doing routing between convolutional capsules we need to send the correct parameters to the e-step
         so that we can convert the a*p tensor to a sparse tensor and do a sparse reduce sum. Otherwise we would
         be computing the wrong sum since all the tensors of conv patches do not keep the patches in their original 
-        position in the image but we need to take their original position into account when doing the sum. E.g.
-        for a 1D image and 1D patches for a single input and output 1D capsule:
-        image --------------------------- [[1, 2, 3, 4]]
-        patches (of size 2)-------------- [[1, 2],
-                                           [2, 3],
-                                           [3, 4]]
-        patches in original position ---- [[1, 2, x, x],
-                                           [x, 2, 3, x],
-                                           [x, x, 3, 4]] 
-        incorrect sum over output ------- [[6, 9]]
-        correct sum over output --------- [[1, 4, 6, 4]]
-        sum over input works either way:- [[3],
-                                           [5],
-                                           [7]]
+        position in the image but we need to take their original position into account when doing the sum. Example in 
+        readme.
         """
         if conv:
             strides = get_correct_conv_param(strides)
             rates = get_correct_conv_param(rates)
             if in_size is None:
                 in_size = conv_in_size(out_size, kernel_size, strides[1:3], rates[1:3], padding)
+            dense_shape = tf_ops.fast_get_patches_full_shape(patches_shape, strides, rates, padding, in_size)
+            dense_shape[6] = out_capsules
+            dense_indices = tf_ops.get_dense_indices(patches_shape, in_size, strides, rates, padding)
+
             sparse_args = {'sparse': True,
                            'strides': strides,
                            'rates': rates,
                            'padding': padding,
-                           'in_size': in_size}
+                           'in_size': in_size,
+                           'patches_shape': patches_shape,
+                           'dense_shape': dense_shape,
+                           'dense_indices': dense_indices}
         else:
             sparse_args = {'sparse': False}
-
-        # TODO - remove this summary once patch reconstruction has been debugged?
-        """
-        tf.summary.image('in_activation_00', tf.reshape(tf.reshape(in_activation[0],
-                                                                   shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 0, 0],
-                                                        shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
-        if conv:
-            tf.summary.image('in_activation_01', tf.reshape(tf.reshape(in_activation[0],
-                                                                       shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 0, 1],
-                                                            shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
-            tf.summary.image('in_activation_10', tf.reshape(tf.reshape(in_activation[0],
-                                                                       shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 1, 0],
-                                                            shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
-            tf.summary.image('in_activation_02', tf.reshape(tf.reshape(in_activation[0],
-                                                                       shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 0, 2],
-                                                            shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
-            tf.summary.image('in_activation_20', tf.reshape(tf.reshape(in_activation[0],
-                                                                       shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 2, 0],
-                                                            shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
-            tf.summary.image('in_activation_22', tf.reshape(tf.reshape(in_activation[0],
-                                                                       shape=[*in_activation.get_shape().as_list()[1:6]])[:, :, 0, 2, 2],
-                                                            shape=[1, *in_activation.get_shape().as_list()[1:3], 1]), max_outputs=1)
-        """
 
         # Do routing iterations
         for routing_iteration in range(n_routing_iterations - 1):
