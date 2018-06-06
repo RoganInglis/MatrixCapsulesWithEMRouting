@@ -28,15 +28,15 @@ flags.DEFINE_string('fixed_params', "{}", 'JSON inputs to fix some params in a H
 # Model configuration
 flags.DEFINE_string('model_name', 'CapsNetEMModel', 'Unique name of the model')
 flags.DEFINE_boolean('best', False, 'Force to use the best known configuration')
-flags.DEFINE_float('learning_rate', 1e-2, 'The learning rate of SGD')
-flags.DEFINE_bool('learning_rate_decay', True, 'Whether to decay the learning rate during training')
-flags.DEFINE_float('final_learning_rate', 5e-4, 'The final decayed learning rate of SGD')
+flags.DEFINE_float('learning_rate', 1e-3, 'The learning rate of SGD')
+flags.DEFINE_bool('learning_rate_decay', False, 'Whether to decay the learning rate during training')
+flags.DEFINE_float('final_learning_rate', 1e-3, 'The final decayed learning rate of SGD')
 flags.DEFINE_float('learning_rate_decay_steps', 1200, 'Number of steps over which to decay the learning rate')
 flags.DEFINE_float('drop_keep_prob', 1.0, 'The dropout keep probability')
 flags.DEFINE_float('l2', 0.0, 'L2 regularisation strength')
-flags.DEFINE_bool('gradient_clipping', False, 'Whether to use gradient clipping')
+flags.DEFINE_bool('gradient_clipping', True, 'Whether to use gradient clipping')
 flags.DEFINE_float('clipping_value', 1., 'Value at which to clip the norm of the gradients if using gradient clipping')
-flags.DEFINE_integer('batch_size', 32, 'Batch size')
+flags.DEFINE_integer('batch_size', 64, 'Batch size')
 flags.DEFINE_integer('image_dim', 784, 'Number of pixels in the input image')  # TODO - should take care of this with dataset class
 flags.DEFINE_integer('n_classes', 10, 'Number of image classes')  # TODO - should take care of this with dataset class
 
@@ -46,48 +46,48 @@ flags.DEFINE_integer('relu_conv1_filters', 32, 'Number of filters for the first 
 flags.DEFINE_integer('relu_conv1_stride', 2, 'Strides for convolution in the first ReLu conv layer')
 
 # PrimaryCaps
-flags.DEFINE_integer('primarycaps_out_capsules', 32, 'Number of primary capsules')
+flags.DEFINE_integer('primarycaps_out_capsules', 8, 'Number of primary capsules')  # TODO - return to 32
 flags.DEFINE_integer('pose_size', 4, 'Size of the pose matrices')
 
 # ConvCaps1
-flags.DEFINE_integer('convcaps1_out_capsules', 32, 'Number of capsules for the first conv capsule layer')
+flags.DEFINE_integer('convcaps1_out_capsules', 16, 'Number of capsules for the first conv capsule layer')  # TODO - return to 32
 flags.DEFINE_integer('convcaps1_kernel_size', 3, 'Kernel size for the first conv caps layer')
 flags.DEFINE_integer('convcaps1_strides', 2, 'Strides for convolution in the first conv caps layer')
 flags.DEFINE_string('convcaps1_padding', 'VALID', 'SAME or VALID padding for the first conv capsule layer')
 flags.DEFINE_integer('convcaps1_n_routing_iterations', 3, 'Number of routing iterations for the first conv caps layer')
 flags.DEFINE_float('convcaps1_init_beta_v', 0., 'Initial beta_v value for the first conv caps layer')
 flags.DEFINE_float('convcaps1_init_beta_a', 0., 'Initial beta_a value for the first conv caps layer')
-flags.DEFINE_float('convcaps1_init_inverse_temp', 0.03, 'Initial inverse temperature value for the first conv caps layer')
-flags.DEFINE_float('convcaps1_final_inverse_temp', 0.1, 'Final inverse temperature value for the first conv caps layer')
+flags.DEFINE_float('convcaps1_init_inverse_temp', 8e-3, 'Initial inverse temperature value for the first conv caps layer')
+flags.DEFINE_float('convcaps1_final_inverse_temp', 3e-2, 'Final inverse temperature value for the first conv caps layer')
 
 # ConvCaps2
-flags.DEFINE_integer('convcaps2_out_capsules', 32, 'Number of capsules for the second conv capsule layer')
+flags.DEFINE_integer('convcaps2_out_capsules', 16, 'Number of capsules for the second conv capsule layer')  # TODO - return to 32
 flags.DEFINE_integer('convcaps2_kernel_size', 3, 'Kernel size for the second conv caps layer')
 flags.DEFINE_integer('convcaps2_strides', 1, 'Strides for convolution in the second conv caps layer')
 flags.DEFINE_string('convcaps2_padding', 'VALID', 'SAME or VALID padding for the second conv capsule layer')
 flags.DEFINE_integer('convcaps2_n_routing_iterations', 3, 'Number of routing iterations for the second conv caps layer')
 flags.DEFINE_float('convcaps2_init_beta_v', 0., 'Initial beta_v value for the second conv caps layer')
 flags.DEFINE_float('convcaps2_init_beta_a', 0., 'Initial beta_a value for the second conv caps layer')
-flags.DEFINE_float('convcaps2_init_inverse_temp', 0.03, 'Initial inverse temperature value for the second conv caps layer')
-flags.DEFINE_float('convcaps2_final_inverse_temp', 0.1, 'Final inverse temperature value for the second conv caps layer')
+flags.DEFINE_float('convcaps2_init_inverse_temp', 8e-3, 'Initial inverse temperature value for the second conv caps layer')
+flags.DEFINE_float('convcaps2_final_inverse_temp', 3e-2, 'Final inverse temperature value for the second conv caps layer')
 
 # Class Capsules
 flags.DEFINE_integer('classcaps_n_routing_iterations', 3, 'Number of routing iterations for the class caps layer')
 flags.DEFINE_float('classcaps_init_beta_v', 0., 'Initial beta_v value for the class caps layer')
 flags.DEFINE_float('classcaps_init_beta_a', 0., 'Initial beta_a value for the class caps layer')
-flags.DEFINE_float('classcaps_init_inverse_temp', 0.0005, 'Initial inverse temperature value for the class caps layer')
-flags.DEFINE_float('classcaps_final_inverse_temp', 0.003, 'Final inverse temperature value for the class caps layer')
+flags.DEFINE_float('classcaps_init_inverse_temp', 2e-4, 'Initial inverse temperature value for the class caps layer')
+flags.DEFINE_float('classcaps_final_inverse_temp', 5e-4, 'Final inverse temperature value for the class caps layer')
 
 # Spread Loss
 flags.DEFINE_float('initial_margin', 0.2, 'Initial value for the margin in the spread loss')
 flags.DEFINE_float('final_margin', 0.9, 'Initial value for the margin in the spread loss')
-flags.DEFINE_integer('margin_decay_steps', 10000, 'Number of training steps over which to increase the margin')  # TODO - is this mentioned in the paper?
+flags.DEFINE_integer('margin_decay_steps', 20000, 'Number of training steps over which to increase the margin')  # TODO - is this mentioned in the paper?
 
 # Training configuration
 flags.DEFINE_boolean('infer', False, 'Load model for inference')
 flags.DEFINE_boolean('debug', False, 'Debug mode')
 flags.DEFINE_boolean('profile', False, 'Run model and profile time and memory usage')
-flags.DEFINE_boolean('full_summaries', False, 'Whether to add extensive TensorBoard summaries (Slows down training)')
+flags.DEFINE_boolean('full_summaries', True, 'Whether to add extensive TensorBoard summaries (Slows down training)')
 flags.DEFINE_integer('max_iter', 1000000, 'Max number of training iterations')
 flags.DEFINE_integer('max_train_epochs', 1000, 'Max number of training epochs')
 flags.DEFINE_boolean('test', False, 'Load a model and compute test performance')

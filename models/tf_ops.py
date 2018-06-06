@@ -499,6 +499,7 @@ def full_to_patches(full_tensor, indices, patches_shape, name=None):
         scope_name = name
     with tf.variable_scope(scope_name):
         # TODO - This is a hacky way to do this, only need to because of the 5D limit of gather_nd. If this limit is raised to 9 or higher then we can remove everything here before the 'Extract patches' comment
+        # TODO - could speed up em routing by getting the reshaped indices within the em-routing function and passing in to a separate version of this function through the e-step
         values = tf.zeros(patches_shape)
         full_shape = get_shape_list(full_tensor)
         sparse_tensor = tf.SparseTensor(indices, tf.reshape(values, [-1]), tf.shape(full_tensor, out_type=tf.int64))

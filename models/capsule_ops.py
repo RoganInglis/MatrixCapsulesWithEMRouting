@@ -40,7 +40,8 @@ def convcaps_affine_transform(in_pose, in_activation, out_capsules, kernel_size,
 
         # Create convolutional matmul kernel and tile over batch and out_size (as we need the same kernel to be
         # multiplied by each patch of conv_pose for each element in the batch)
-        kernel = tf.Variable(tf.truncated_normal([1, *ksizes[1:3], in_capsules, 1, 1, out_capsules, pose_size, pose_size], stddev=0.5), name='weights')
+        kernel = tf.Variable(tf.truncated_normal([1, *ksizes[1:3], in_capsules, 1, 1, out_capsules, pose_size, pose_size],
+                                                 stddev=0.5), name='weights')
         if summaries:
             tf.summary.histogram('weights', kernel)
 
@@ -93,7 +94,8 @@ def caps_affine_transform(in_pose, in_activation, out_capsules, coord_addition=T
 
         # Create matmul weights and tile over batch, in_rows and in_columns (as we need the same weights to be
         # multiplied by each batch element and because we need to share transformation matrices over the whole image)
-        weights = tf.Variable(tf.truncated_normal([1, 1, 1, in_capsules, 1, 1, out_capsules, pose_size, pose_size], stddev=0.5), name='weights')
+        weights = tf.Variable(tf.truncated_normal([1, 1, 1, in_capsules, 1, 1, out_capsules, pose_size, pose_size],
+                                                  stddev=0.5), name='weights')
         if summaries:
             tf.summary.histogram('weights', weights)
 

@@ -25,7 +25,8 @@ def primarycaps_layer(input_tensor, out_capsules, pose_size, summaries=False):
         # Affine transform to create capsule pose matrices and activations
         # Create weights and tile them over batch in preparation for matmul op as we need to use the same weights for
         # each element in the batch
-        weights = tf.Variable(tf.truncated_normal([1, 1, 1, out_capsules, in_channels, (pose_size ** 2 + 1)], stddev=0.5), name='weights')
+        weights = tf.Variable(tf.truncated_normal([1, 1, 1, out_capsules, in_channels, (pose_size ** 2 + 1)],
+                                                  stddev=0.5), name='weights')
         if summaries:
             tf.summary.histogram('weights', weights)
 
