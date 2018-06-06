@@ -46,7 +46,9 @@ like to experiment with custom architectures.
 
 ## Results
 
-Working on this
+Working on this - the model currently trains but doesn't seem to reach the performance reported in the paper as it
+generally runs into NaN issues before. This could just be down to incorrect parameters e.g. the routing inverse temp
+schedule which is not given in the paper, or there may still be something incorrect somewhere with the implementation.
 
 ## Notes
 
